@@ -1,0 +1,13 @@
+data:
+  debug: true
+  repoSelector: "mysql"
+  mysql:
+    driver: mysql
+    source: root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local
+  redis:
+    addr: "192.168.5.134:6379"
+    db: 0
+    pool: 250
+    read_timeout: "5s"
+    write_timeout: "5s"
+    is_cluster: false

@@ -1,0 +1,18 @@
+#source:
+#  file: /home/mystic/workspace/im-server/configs/file
+source:
+  apollo:
+    app_id: "im-server"
+    cluster: "default"
+    endpoint: "http://192.168.5.134:8080"
+    namespace: "server.yaml,data.yaml"
+    original_config: true
+    enable_backup: false
+    backup_path: "/app/configs"
+zap:
+  file: /home/mystic/workspace/im-server/local_logs/im-server.log
+  console: true
+  level: info
+  max_age: 5
+  max_size: 10
+  max_backups: 3

@@ -1,0 +1,70 @@
+# Generated with protoc-gen-openapi
+# https://github.com/google/gnostic/tree/master/cmd/protoc-gen-openapi
+
+openapi: 3.0.3
+info:
+    title: GreeterSvc API
+    description: The greeting service definition.
+    version: 0.0.1
+paths:
+    /v1/greeter/list:
+        post:
+            tags:
+                - GreeterSvc
+            summary: 获取Greeter列表
+            description: Sends a greeting
+            operationId: GreeterSvc_ListGreeter
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/im_server.ListGreeterReq'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/im_server.ListGreeterRsp'
+components:
+    schemas:
+        im_server.BaseResp:
+            type: object
+            properties:
+                code:
+                    type: integer
+                    format: int32
+                reason:
+                    type: string
+                msg:
+                    type: string
+        im_server.Greeter:
+            type: object
+            properties:
+                name:
+                    type: string
+                age:
+                    type: integer
+                    format: uint32
+        im_server.ListGreeterReq:
+            type: object
+            properties: {}
+            description: The request message containing the user's name.
+        im_server.ListGreeterRsp:
+            type: object
+            properties:
+                ret:
+                    $ref: '#/components/schemas/im_server.BaseResp'
+                body:
+                    $ref: '#/components/schemas/im_server.ListGreeterRsp_Body'
+            description: The response message containing the greetings
+        im_server.ListGreeterRsp_Body:
+            type: object
+            properties:
+                greeters:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/im_server.Greeter'
+tags:
+    - name: GreeterSvc
