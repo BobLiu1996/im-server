@@ -3,38 +3,25 @@ package data
 import (
 	"context"
 	"im-server/internal/biz"
+	"im-server/internal/biz/do"
 )
 
-type greeterRepo struct {
+type greeterImpl struct {
 	data *Data
 }
 
+var _ biz.GreeterRepo = (*greeterImpl)(nil)
+
 // NewGreeterRepo .
 func NewGreeterRepo(data *Data) biz.GreeterRepo {
-	return &greeterRepo{
+	return &greeterImpl{
 		data: data,
 	}
 }
 
-func (r *greeterRepo) Save(ctx context.Context, g *biz.Greeter) (*biz.Greeter, error) {
-	return g, nil
-}
-
-func (r *greeterRepo) Update(ctx context.Context, g *biz.Greeter) (*biz.Greeter, error) {
-	return g, nil
-}
-
-func (r *greeterRepo) FindByID(context.Context, int64) (*biz.Greeter, error) {
-	return nil, nil
-}
-
-func (r *greeterRepo) ListByHello(context.Context, string) ([]*biz.Greeter, error) {
-	return nil, nil
-}
-
-func (r *greeterRepo) ListAll(ctx context.Context) ([]*biz.Greeter, error) {
+func (r *greeterImpl) ListAll(ctx context.Context) ([]*do.Greeter, error) {
 	tGreeter := r.data.Query().TGreeter
-	res := make([]*biz.Greeter, 0)
+	res := make([]*do.Greeter, 0)
 	if err := tGreeter.WithContext(ctx).Select(tGreeter.Name, tGreeter.Age).Scan(&res); err != nil {
 		return nil, err
 	}

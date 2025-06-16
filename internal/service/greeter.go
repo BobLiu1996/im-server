@@ -5,6 +5,7 @@ import (
 	pb "im-server/api/v1"
 
 	"im-server/internal/biz"
+	"im-server/internal/biz/do"
 )
 
 // GreeterService is a greeter service.
@@ -20,7 +21,7 @@ func NewGreeterService(uc *biz.GreeterUsecase) *GreeterService {
 }
 
 func (g *GreeterService) ListGreeter(ctx context.Context, req *pb.ListGreeterReq) (*pb.ListGreeterRsp, error) {
-	greeters, err := g.uc.ListAll(ctx)
+	greeters, err := g.uc.ListAllGreeter(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +33,7 @@ func (g *GreeterService) ListGreeter(ctx context.Context, req *pb.ListGreeterReq
 	return rsp, nil
 }
 
-func convertGreeterDoToPbs(gs []*biz.Greeter) []*pb.Greeter {
+func convertGreeterDoToPbs(gs []*do.Greeter) []*pb.Greeter {
 	ret := make([]*pb.Greeter, 0)
 	for _, g := range gs {
 		ret = append(ret, convertGreeterDoToPb(g))
@@ -40,7 +41,7 @@ func convertGreeterDoToPbs(gs []*biz.Greeter) []*pb.Greeter {
 	return ret
 }
 
-func convertGreeterDoToPb(g *biz.Greeter) *pb.Greeter {
+func convertGreeterDoToPb(g *do.Greeter) *pb.Greeter {
 	return &pb.Greeter{
 		Name: g.Name,
 		Age:  g.Age,
