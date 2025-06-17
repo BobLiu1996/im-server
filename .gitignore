@@ -37,3 +37,4 @@ bin/
 .idea/
 *.swp
 local_logs
+localconf
