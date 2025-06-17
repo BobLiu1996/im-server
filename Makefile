@@ -52,7 +52,7 @@ build:
 
 .PHONY: wire
 wire:
-	cd cmd/im_server && wire && cd ../../
+	cd cmd/imserver && wire && cd ../../
 
 .PHONY: generate
 # generate

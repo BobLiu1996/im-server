@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"im-server/internal/conf"
-	"im-server/internal/data"
-
+	distribute_lock "im-server/internal/pkg/infra/lock"
 	redis_lock "im-server/pkg/client/cache/locker"
 	"im-server/pkg/server/task"
 
@@ -46,8 +45,8 @@ type CronServerImpl struct {
 	cronTaskCfg []*conf.CronTask
 }
 
-func NewCronServer(cronSvc wire.CronService, data *data.Data, config *conf.AppConfig) *CronServerImpl {
-	locker := NewLocker(data.Redis())
+func NewCronServer(cronSvc wire.CronService, l distribute_lock.Locker, config *conf.AppConfig) *CronServerImpl {
+	locker := NewMyLocker(l)
 	srv := task.NewServer(
 		task.WithContext(context.Background()),
 		task.WithLocker(locker, "cron_task"),
@@ -130,4 +129,16 @@ func (l *Locker) Lock(ctx context.Context, key string, timeout time.Duration) (u
 		return nil, err
 	}
 	return lock.Unlock, nil
+}
+
+type MyLocker struct {
+	l distribute_lock.Locker
+}
+
+func NewMyLocker(locker distribute_lock.Locker) *MyLocker {
+	return &MyLocker{l: locker}
+}
+
+func (m MyLocker) Lock(ctx context.Context, key string, timeout time.Duration) (unlock func(context.Context) error, err error) {
+	return m.l.Lock(ctx, key, timeout)
 }
