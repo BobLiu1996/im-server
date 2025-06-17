@@ -12,6 +12,7 @@ import (
 	"im-server/internal/biz"
 	"im-server/internal/conf"
 	"im-server/internal/data"
+	"im-server/internal/data/infra/lock/redis"
 	"im-server/internal/server"
 	"im-server/internal/service"
 )
@@ -35,7 +36,8 @@ func wireApp(confServer *conf.Server, confData *conf.Data, appConfig *conf.AppCo
 	auth := biz.NewAuth(confServer)
 	httpServer := server.NewHTTPServer(confServer, auth, greeterService)
 	cronService := service.NewCronService()
-	cronServerImpl := server.NewCronServer(cronService, dataData, appConfig)
+	locker := redis.NewLocker(dataData)
+	cronServerImpl := server.NewCronServer(cronService, locker, appConfig)
 	app := newApp(logger, grpcServer, httpServer, cronServerImpl)
 	return app, func() {
 		cleanup()

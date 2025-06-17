@@ -8,15 +8,13 @@ import (
 	"im-server/internal/biz"
 	"im-server/internal/conf"
 	"im-server/internal/data/dao"
-	redislock "im-server/internal/data/infra/lock/redis"
-	locker "im-server/internal/pkg/infra/lock"
 	"im-server/pkg/client/cache"
 	"im-server/pkg/client/db"
 	plog "im-server/pkg/log"
 )
 
 // ProviderSet is data providers.
-var ProviderSet = wire.NewSet(NewData, ProvideGreeterRepo, redislock.NewLocker, wire.Bind(new(locker.Locker), new(*redislock.Locker)))
+var ProviderSet = wire.NewSet(NewData, ProvideGreeterRepo)
 
 func ProvideGreeterRepo(data *Data) biz.GreeterRepo {
 	switch data.dataCfg.RepoSelector {

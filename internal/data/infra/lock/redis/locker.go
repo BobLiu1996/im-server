@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"github.com/redis/go-redis/v9"
+	"im-server/internal/data"
 	"sync"
 	"time"
 
@@ -35,9 +36,9 @@ type Locker struct {
 	valuer func() string
 }
 
-func NewLocker(client redis.Cmdable) *Locker {
+func NewLocker(data *data.Data) *Locker {
 	return &Locker{
-		client: client,
+		client: data.Redis(),
 		valuer: func() string {
 			return uuid.New().String()
 		},
@@ -148,7 +149,7 @@ func (l *Lock) Unlock(ctx context.Context) error {
 			close(l.unlock)
 		})
 	}()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return ErrLockNotHold
 	}
 	if err != nil {

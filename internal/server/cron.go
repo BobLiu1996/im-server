@@ -9,12 +9,10 @@ import (
 	"time"
 
 	"im-server/internal/conf"
-	distribute_lock "im-server/internal/pkg/infra/lock"
-	redis_lock "im-server/pkg/client/cache/locker"
+	distributelock "im-server/internal/pkg/infra/lock"
 	"im-server/pkg/server/task"
 
 	"github.com/go-kratos/kratos/v2/config"
-	"github.com/redis/go-redis/v9"
 )
 
 // ------------------- 业务说明 -------------------
@@ -45,11 +43,10 @@ type CronServerImpl struct {
 	cronTaskCfg []*conf.CronTask
 }
 
-func NewCronServer(cronSvc wire.CronService, l distribute_lock.Locker, config *conf.AppConfig) *CronServerImpl {
-	locker := NewMyLocker(l)
+func NewCronServer(cronSvc wire.CronService, l distributelock.DistributedLock, config *conf.AppConfig) *CronServerImpl {
 	srv := task.NewServer(
 		task.WithContext(context.Background()),
-		task.WithLocker(locker, "cron_task"),
+		task.WithLocker(newLockerWrapper(l), "cron_task"),
 	)
 	serverCfg := config.GetBootstrap().GetServer()
 	cronServer := &CronServerImpl{
@@ -86,7 +83,10 @@ func (s *CronServerImpl) Notify(value interface{}) {
 	}
 	s.cronTaskCfg = data.CronTasks
 	s.Server.RemoveAllTask()
-	s.addCronTask()
+	if err := s.addCronTask(); err != nil {
+		plog.Errorf(context.Background(), "failed to add cron task: %v", err)
+		return
+	}
 }
 
 // addCronTask 从配置文件中读取添加定时任务
@@ -114,31 +114,14 @@ func (s *CronServerImpl) addCronTask() error {
 	return nil
 }
 
-type Locker struct {
-	*redis_lock.Client
+type lockerWrapper struct {
+	l distributelock.DistributedLock
 }
 
-func NewLocker(client redis.Cmdable) *Locker {
-	rclient := redis_lock.NewClient(client)
-	return &Locker{Client: rclient}
+func newLockerWrapper(locker distributelock.DistributedLock) *lockerWrapper {
+	return &lockerWrapper{l: locker}
 }
 
-func (l *Locker) Lock(ctx context.Context, key string, timeout time.Duration) (unlock func(context.Context) error, err error) {
-	lock, err := l.Client.TryLock(ctx, key, timeout)
-	if err != nil {
-		return nil, err
-	}
-	return lock.Unlock, nil
-}
-
-type MyLocker struct {
-	l distribute_lock.Locker
-}
-
-func NewMyLocker(locker distribute_lock.Locker) *MyLocker {
-	return &MyLocker{l: locker}
-}
-
-func (m MyLocker) Lock(ctx context.Context, key string, timeout time.Duration) (unlock func(context.Context) error, err error) {
+func (m lockerWrapper) Lock(ctx context.Context, key string, timeout time.Duration) (unlock func(context.Context) error, err error) {
 	return m.l.Lock(ctx, key, timeout)
 }
