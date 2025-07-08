@@ -2,8 +2,13 @@ package distribute
 
 import (
 	"github.com/google/wire"
-	icache "im-server/internal/pkg/infra/cache"
-	ilock "im-server/internal/pkg/infra/lock"
+	"im-server/internal/pkg/infra/cache"
 )
 
-var ProviderSet = wire.NewSet(NewRedisDistributeCacheService, wire.Bind(new(icache.DistributedCache[T any]), new(*RedisDistributeCacheService)))
+var ProviderSet = wire.NewSet(
+	NewRedisDistributeCacheService,
+	wire.Bind(
+		new(cache.DistributedCache),
+		new(*RedisDistributeCacheService),
+	),
+)

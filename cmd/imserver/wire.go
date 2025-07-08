@@ -9,6 +9,7 @@ import (
 	"im-server/internal/biz"
 	"im-server/internal/conf"
 	"im-server/internal/data"
+	rediscache "im-server/internal/data/infra/cache/distribute"
 	redislock "im-server/internal/data/infra/lock/redis"
 	"im-server/internal/server"
 	"im-server/internal/service"
@@ -20,5 +21,5 @@ import (
 
 // wireApp init kratos application.
 func wireApp(*conf.Server, *conf.Data, *conf.AppConfig, log.Logger) (*kratos.App, func(), error) {
-	panic(wire.Build(server.ProviderSet, data.ProviderSet, biz.ProviderSet, service.ProviderSet, redislock.ProviderSet, newApp))
+	panic(wire.Build(server.ProviderSet, data.ProviderSet, biz.ProviderSet, service.ProviderSet, redislock.ProviderSet, rediscache.ProviderSet, newApp))
 }
