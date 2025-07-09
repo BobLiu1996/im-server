@@ -12,7 +12,6 @@ import (
 	"im-server/internal/pkg/infra/cache"
 	typeconversion "im-server/pkg/conversion"
 	plog "im-server/pkg/log"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -214,16 +213,18 @@ func getKeyWithID(keyPrefix string, id interface{}) string {
 		hash := md5.Sum([]byte(jsonStr))
 		key = hex.EncodeToString(hash[:])
 	}
-
 	if strings.TrimSpace(key) == "" {
 		key = ""
 	}
-
-	return keyPrefix + key
+	return fmt.Sprintf("%s_%s", keyPrefix, key)
 }
 
 // toJSONString 将对象转换为JSON字符串
 func toJSONString(obj interface{}) string {
+	s, ok := obj.(string)
+	if ok {
+		return s
+	}
 	d, err := json.Marshal(obj)
 	if err != nil {
 		plog.Errorf(context.Background(), "Failed to marshal object to JSON: %v", err)
@@ -232,41 +233,13 @@ func toJSONString(obj interface{}) string {
 	return string(d)
 }
 
-func getResult(obj interface{}, target interface{}) interface{} {
-	d, err := json.Marshal(obj)
+func getResult[T any](obj interface{}) T {
+	str := toJSONString(obj)
+	var t T
+	err := json.Unmarshal([]byte(str), &t)
 	if err != nil {
-		panic(fmt.Errorf("marshal error: %w", err))
+		plog.Errorf(context.Background(), "Failed to unmarshal JSON to type %T: %v", t, err)
+		return *new(T) // 返回T类型的零值
 	}
-
-	// 解码到 target 指针中
-	err = json.Unmarshal(d, target)
-	if err != nil {
-		panic(fmt.Errorf("unmarshal error: %w", err))
-	}
-
-	return target
-}
-
-// getResult 返回interface{}，但提供辅助函数来提取具体类型
-func getResult2(obj interface{}, targetType reflect.Type) interface{} {
-	if obj == nil {
-		return reflect.Zero(targetType).Interface()
-	}
-
-	// 将obj序列化为JSON
-	jsonData, err := json.Marshal(obj)
-	if err != nil {
-		return reflect.Zero(targetType).Interface()
-	}
-
-	// 创建目标类型的值
-	result := reflect.New(targetType).Elem()
-
-	// 将JSON反序列化为目标类型
-	err = json.Unmarshal(jsonData, result.Addr().Interface())
-	if err != nil {
-		return reflect.Zero(targetType).Interface()
-	}
-
-	return result.Interface()
+	return t
 }
