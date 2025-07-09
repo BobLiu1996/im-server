@@ -139,8 +139,37 @@ func (r *RedisDistributeCacheService) QueryWithPassThrough(ctx context.Context, 
 }
 
 func (r *RedisDistributeCacheService) QueryWithPassThroughWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (any, error), timeout time.Duration) (any, error) {
-	//TODO implement me
-	panic("implement me")
+	key := getKeyWithoutID(keyPrefix)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，查询数据库
+			rVal, err := dbFallback(ctx)
+			if err != nil {
+				return nil, err
+			}
+			// 数据库中也不存在
+			if rVal == nil {
+				// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
+				if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+			// 缓存数据
+			if err = r.SetWithTTL(ctx, key, rVal, timeout); err != nil {
+				return nil, err
+			}
+			return rVal, nil
+		}
+		return nil, err
+	}
+	// 缓存的数据为空字符串，直接返回nil
+	if cachedValue == "" {
+		return nil, nil
+	}
+	return cachedValue, nil
 }
 
 func (r *RedisDistributeCacheService) QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]any, error), timeout time.Duration) ([]any, error) {
@@ -193,10 +222,14 @@ func (r *RedisDistributeCacheService) QueryWithMutexListWithoutArgs(ctx context.
 	panic("implement me")
 }
 
-// getKey 获取缓存键
-// 默认实现，调用带id参数的getKey
+// getKey 获取带Id的缓存键
 func getKey(keyPrefix string, id interface{}) string {
 	return getKeyWithID(keyPrefix, id)
+}
+
+// getKeyWithoutID 获取不带Id的缓存键
+func getKeyWithoutID(keyPrefix string) string {
+	return getKeyWithID(keyPrefix, nil)
 }
 
 // getKeyWithID 获取带有参数的缓存键
