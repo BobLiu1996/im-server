@@ -106,7 +106,7 @@ func (r *RedisDistributeCacheService) Keys(ctx context.Context, pattern string) 
 
 func (r *RedisDistributeCacheService) QueryWithPassThrough(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (any, error), timeout time.Duration) (any, error) {
 	key := getKey(keyPrefix, id)
-	// 2. 尝试从缓存获取
+	// 尝试从缓存获取
 	cachedValue, err := r.client.Get(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
