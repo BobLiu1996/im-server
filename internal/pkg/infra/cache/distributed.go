@@ -29,3 +29,8 @@ type DistributedCache interface {
 	QueryWithMutexList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]any, error), timeout time.Duration) ([]any, error)
 	QueryWithMutexListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]any, error), timeout time.Duration) (any, error)
 }
+
+type DistributedCacheType[T any] interface {
+	Set(ctx context.Context, key string, value any) error
+	QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, T) ([]T, error), timeout time.Duration) ([]T, error)
+}

@@ -173,8 +173,38 @@ func (r *RedisDistributeCacheService) QueryWithPassThroughWithoutArgs(ctx contex
 }
 
 func (r *RedisDistributeCacheService) QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]any, error), timeout time.Duration) ([]any, error) {
-	//TODO implement me
-	panic("implement me")
+	//key := getKey(keyPrefix, id)
+	//// 尝试从缓存获取
+	//cachedValue, err := r.client.Get(ctx, key).Result()
+	//if err != nil {
+	//	if errors.Is(err, redis.Nil) {
+	//		// 缓存不存在，查询数据库
+	//		rVal, err := dbFallback(ctx, id)
+	//		if err != nil {
+	//			return nil, err
+	//		}
+	//		// 数据库中也不存在
+	//		if rVal == nil || len(rVal) == 0 {
+	//			// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
+	//			if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
+	//				return nil, err
+	//			}
+	//			return nil, nil
+	//		}
+	//		// 缓存数据
+	//		if err = r.SetWithTTL(ctx, key, rVal, timeout); err != nil {
+	//			return nil, err
+	//		}
+	//		return rVal, nil
+	//	}
+	//	return nil, err
+	//}
+	//// 缓存的数据为空字符串，直接返回nil
+	//if cachedValue == "" {
+	//	return nil, nil
+	//}
+	//return cachedValue, nil
+	panic("")
 }
 
 func (r *RedisDistributeCacheService) QueryWithPassThroughListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]any, error), timeout time.Duration) ([]any, error) {
@@ -266,13 +296,46 @@ func toJSONString(obj interface{}) string {
 	return string(d)
 }
 
-func getResult[T any](obj interface{}) T {
+// GetResult 将json字符串转换成对象
+func GetResult[T any](obj any) (T, error) {
 	str := toJSONString(obj)
 	var t T
-	err := json.Unmarshal([]byte(str), &t)
-	if err != nil {
-		plog.Errorf(context.Background(), "Failed to unmarshal JSON to type %T: %v", t, err)
-		return *new(T) // 返回T类型的零值
+	if err := json.Unmarshal([]byte(str), &t); err != nil {
+		return *new(T), err // 返回T类型的零值
 	}
-	return t
+	return t, nil
+}
+
+// GetResultList 将数组类型的json字符串转换成对象列表
+func GetResultList[T any](obj any) ([]T, error) {
+	if obj == nil {
+		return nil, nil
+	}
+	str := toJSONString(obj)
+	var t []T
+	if err := json.Unmarshal([]byte(str), &t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+type RedisDistributeCacheType[T any] struct {
+}
+
+func NewRedisDistributeCacheType[T any]() *RedisDistributeCacheType[T] {
+	return &RedisDistributeCacheType[T]{}
+}
+
+func (r *RedisDistributeCacheType[T]) Set(ctx context.Context, key string, value any) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *RedisDistributeCacheType[T]) QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, T) ([]T, error), timeout time.Duration) ([]T, error) {
+	userListStr := `[{"name":"Alice","age":25},{"name":"Bob","age":30}]`
+	list, err := GetResultList[T](userListStr)
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
 }

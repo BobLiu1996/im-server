@@ -40,12 +40,12 @@ func InitRedisDistributeCacheService() (cache.DistributedCache, func(), error) {
 	config := &conf.Data{
 		Mysql: &conf.Data_MySql{
 			Driver: "mysql",
-			//Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
-			Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			//Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
 		},
 		Redis: &conf.Data_Redis{
-			//Addr: "192.168.5.134:6379",
-			Addr:      "localhost:6379",
+			Addr: "192.168.5.134:6379",
+			//Addr:      "localhost:6379",
 			Db:        0,
 			Pool:      250,
 			IsCluster: false,
@@ -67,6 +67,24 @@ func TestGetKey(t *testing.T) {
 			Version: 1,
 		})
 		So(len(res), ShouldBeGreaterThan, 0)
+	})
+}
+
+func TestGetResult(t *testing.T) {
+	Convey("获取结果对象", t, func() {
+		userStr := `{"name":"Alice","age":25}`
+		res, err := GetResult[*User](userStr)
+		So(err, ShouldBeNil)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestGetResultList(t *testing.T) {
+	Convey("获取结果列表", t, func() {
+		userListStr := `[{"name":"Alice","age":25},{"name":"Bob","age":30}]`
+		res, err := GetResultList[*User](userListStr)
+		So(err, ShouldBeNil)
+		So(len(res), ShouldEqual, 2)
 	})
 }
 
@@ -99,7 +117,7 @@ func TestQueryWithPassThrough(t *testing.T) {
 		//}
 		d, err := redisCache.QueryWithPassThrough(context.Background(), testKeyPrefix, id, fn, 10*time.Second)
 		So(err, ShouldBeNil)
-		res := getResult[*User](d)
+		res, _ := GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
