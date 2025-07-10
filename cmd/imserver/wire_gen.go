@@ -31,9 +31,9 @@ func wireApp(confServer *conf.Server, confData *conf.Data, appConfig *conf.AppCo
 		return nil, nil, err
 	}
 	greeterRepo := data.ProvideGreeterRepo(dataData)
-	redisDistributeCacheService := distribute.NewRedisDistributeCacheService(dataData)
-	distributedCacheType := distribute.ProvideGreeterCache()
-	greeterUsecase := biz.NewGreeterUsecase(greeterRepo, redisDistributeCacheService, distributedCacheType)
+	distributedCacheType := distribute.ProvideGreeterDistributeCache(dataData)
+	cacheDistributedCacheType := distribute.ProvideUserDistributeCache(dataData)
+	greeterUsecase := biz.NewGreeterUsecase(greeterRepo, distributedCacheType, cacheDistributedCacheType)
 	greeterService := service.NewGreeterService(greeterUsecase)
 	grpcServer := server.NewGRPCServer(confServer, greeterService)
 	auth := biz.NewAuth(confServer)

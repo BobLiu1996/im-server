@@ -11,24 +11,31 @@ import (
 // GreeterUsecase is a Greeter usecase.
 type GreeterUsecase struct {
 	repo                   GreeterRepo
-	distributedCache       cache.DistributedCache
 	greeterDistributeCache cache.DistributedCacheType[*do.Greeter]
+	userDistributeCache    cache.DistributedCacheType[*do.User]
 }
 
 // NewGreeterUsecase new a Greeter usecase.
-func NewGreeterUsecase(repo GreeterRepo, distributedCache cache.DistributedCache, greeterDistributeCache cache.DistributedCacheType[*do.Greeter]) *GreeterUsecase {
+func NewGreeterUsecase(repo GreeterRepo, greeterDistributeCache cache.DistributedCacheType[*do.Greeter], userDistributeCache cache.DistributedCacheType[*do.User]) *GreeterUsecase {
 	return &GreeterUsecase{
 		repo:                   repo,
-		distributedCache:       distributedCache,
 		greeterDistributeCache: greeterDistributeCache,
+		userDistributeCache:    userDistributeCache,
 	}
 }
 
 func (uc GreeterUsecase) ListAllGreeter(ctx context.Context) ([]*do.Greeter, error) {
-	list, err := uc.greeterDistributeCache.QueryWithPassThroughList(ctx, "id", "", nil, 10*time.Second)
+	// 获取Greeter类型的分布式缓存列表
+	greeterList, err := uc.greeterDistributeCache.QueryWithPassThroughList(ctx, "id", "", nil, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(list)
+	fmt.Println(greeterList)
+	// 获取User类型的分布式缓存列表
+	userList, err := uc.userDistributeCache.QueryWithPassThroughList(ctx, "id", "", nil, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(userList)
 	return uc.repo.ListAll(ctx)
 }

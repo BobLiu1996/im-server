@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"im-server/internal/data"
-	"im-server/internal/pkg/infra/cache"
 	typeconversion "im-server/pkg/conversion"
 	plog "im-server/pkg/log"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -24,8 +24,6 @@ const (
 	ThreadSleepMilliseconds = 50 * time.Millisecond
 )
 
-var _ cache.DistributedCache = (*RedisDistributeCacheService)(nil)
-
 type (
 	RedisData struct {
 		// 实际业务数据
@@ -34,57 +32,60 @@ type (
 		ExpireTime time.Time
 	}
 
-	RedisDistributeCacheService struct {
+	RedisDistributeCacheType[T any] struct {
 		client redis.Cmdable
 	}
 )
 
-func NewRedisDistributeCacheService(data *data.Data) *RedisDistributeCacheService {
-	return &RedisDistributeCacheService{client: data.Redis()}
+func NewRedisDistributeCacheType[T any](data *data.Data) *RedisDistributeCacheType[T] {
+	return &RedisDistributeCacheType[T]{
+		client: data.Redis(),
+	}
 }
 
-func (r *RedisDistributeCacheService) Set(ctx context.Context, key string, value any) error {
-	return r.client.Set(ctx, key, value, 0).Err()
+func (r *RedisDistributeCacheType[T]) Set(ctx context.Context, key string, value any) error {
+	return r.client.Set(ctx, key, getValue(value), 0).Err()
 }
 
-func (r *RedisDistributeCacheService) SetWithTTL(ctx context.Context, key string, value any, timeout time.Duration) error {
-	return r.client.Set(ctx, key, value, timeout).Err()
+func (r *RedisDistributeCacheType[T]) SetWithTTL(ctx context.Context, key string, value any, timeout time.Duration) error {
+	return r.client.Set(ctx, key, getValue(value), timeout).Err()
 }
 
-func (r *RedisDistributeCacheService) Expire(ctx context.Context, key string, timeout time.Duration) error {
+func (r *RedisDistributeCacheType[T]) Expire(ctx context.Context, key string, timeout time.Duration) error {
 	return r.client.Expire(ctx, key, timeout).Err()
 }
 
-func (r *RedisDistributeCacheService) SetWithLogicalExpire(ctx context.Context, key string, value any, timeout time.Duration) error {
+func (r *RedisDistributeCacheType[T]) SetWithLogicalExpire(ctx context.Context, key string, value any, timeout time.Duration) error {
 	redisData := &RedisData{
 		Data:       value,
 		ExpireTime: time.Now().Add(timeout),
 	}
-	return r.client.Set(ctx, key, redisData, 0).Err()
+	return r.client.Set(ctx, key, getValue(redisData), 0).Err()
 }
 
-func (r *RedisDistributeCacheService) Get(ctx context.Context, key string) (string, error) {
+func (r *RedisDistributeCacheType[T]) Get(ctx context.Context, key string) (string, error) {
 	return r.client.Get(ctx, key).Result()
 }
 
-func (r *RedisDistributeCacheService) GetObject(ctx context.Context, key string, target interface{}) (any, error) {
+func (r *RedisDistributeCacheType[T]) GetObject(ctx context.Context, key string) (T, error) {
 	val, err := r.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("key not found")
+		return *new(T), nil
 	} else if err != nil {
-		return nil, err
+		return *new(T), err
 	}
-	if err = json.Unmarshal([]byte(val), target); err != nil {
-		return nil, err
+	result, err := GetResult[T](val)
+	if err != nil {
+		return result, err
 	}
-	return target, nil
+	return result, nil
 }
 
-func (r *RedisDistributeCacheService) Delete(ctx context.Context, key string) error {
+func (r *RedisDistributeCacheType[T]) Delete(ctx context.Context, key string) error {
 	return r.client.Del(ctx, key).Err()
 }
 
-func (r *RedisDistributeCacheService) MultiGet(ctx context.Context, keys []string) (map[string]string, error) {
+func (r *RedisDistributeCacheType[T]) MultiGet(ctx context.Context, keys []string) (map[string]string, error) {
 	vals, err := r.client.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, err
@@ -100,11 +101,11 @@ func (r *RedisDistributeCacheService) MultiGet(ctx context.Context, keys []strin
 	return result, nil
 }
 
-func (r *RedisDistributeCacheService) Keys(ctx context.Context, pattern string) ([]string, error) {
+func (r *RedisDistributeCacheType[T]) Keys(ctx context.Context, pattern string) ([]string, error) {
 	return r.client.Keys(ctx, pattern).Result()
 }
 
-func (r *RedisDistributeCacheService) QueryWithPassThrough(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithPassThrough(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration) (T, error) {
 	key := getKey(keyPrefix, id)
 	// 尝试从缓存获取
 	cachedValue, err := r.client.Get(ctx, key).Result()
@@ -113,32 +114,37 @@ func (r *RedisDistributeCacheService) QueryWithPassThrough(ctx context.Context, 
 			// 缓存不存在，查询数据库
 			rVal, err := dbFallback(ctx, id)
 			if err != nil {
-				return nil, err
+				return Zero[T](), err
 			}
 			// 数据库中也不存在
-			if rVal == nil {
+			if IsEmpty(rVal) {
 				// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
 				if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
-					return nil, err
+					return Zero[T](), err
 				}
-				return nil, nil
+				return Zero[T](), nil
 			}
 			// 缓存数据
 			if err = r.SetWithTTL(ctx, key, rVal, timeout); err != nil {
-				return nil, err
+				// 如果缓存失败，直接返回数据库查询结果,同时返回错误
+				return rVal, err
 			}
 			return rVal, nil
 		}
-		return nil, err
+		return Zero[T](), err
 	}
 	// 缓存的数据为空字符串，直接返回nil
 	if cachedValue == "" {
-		return nil, nil
+		return Zero[T](), nil
 	}
-	return cachedValue, nil
+	result, err := GetResult[T](cachedValue)
+	if err != nil {
+		return Zero[T](), err
+	}
+	return result, nil
 }
 
-func (r *RedisDistributeCacheService) QueryWithPassThroughWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithPassThroughWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (T, error), timeout time.Duration) (T, error) {
 	key := getKeyWithoutID(keyPrefix)
 	// 尝试从缓存获取
 	cachedValue, err := r.client.Get(ctx, key).Result()
@@ -147,10 +153,49 @@ func (r *RedisDistributeCacheService) QueryWithPassThroughWithoutArgs(ctx contex
 			// 缓存不存在，查询数据库
 			rVal, err := dbFallback(ctx)
 			if err != nil {
+				return Zero[T](), err
+			}
+			// 数据库中也不存在
+			if IsEmpty(rVal) {
+				// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
+				if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
+					return Zero[T](), err
+				}
+				return Zero[T](), nil
+			}
+			// 缓存数据
+			if err = r.SetWithTTL(ctx, key, rVal, timeout); err != nil {
+				// 如果缓存失败，直接返回数据库查询结果,同时返回错误
+				return rVal, err
+			}
+			return rVal, nil
+		}
+		return Zero[T](), err
+	}
+	// 缓存的数据为空字符串，直接返回nil
+	if cachedValue == "" {
+		return Zero[T](), nil
+	}
+	result, err := GetResult[T](cachedValue)
+	if err != nil {
+		return Zero[T](), err
+	}
+	return result, nil
+}
+
+func (r *RedisDistributeCacheType[T]) QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]T, error), timeout time.Duration) ([]T, error) {
+	key := getKey(keyPrefix, id)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，查询数据库
+			rVals, err := dbFallback(ctx, id)
+			if err != nil {
 				return nil, err
 			}
 			// 数据库中也不存在
-			if rVal == nil {
+			if rVals == nil || len(rVals) == 0 {
 				// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
 				if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
 					return nil, err
@@ -158,10 +203,11 @@ func (r *RedisDistributeCacheService) QueryWithPassThroughWithoutArgs(ctx contex
 				return nil, nil
 			}
 			// 缓存数据
-			if err = r.SetWithTTL(ctx, key, rVal, timeout); err != nil {
-				return nil, err
+			if err = r.SetWithTTL(ctx, key, rVals, timeout); err != nil {
+				// 如果缓存失败，直接返回数据库查询结果,同时返回错误
+				return rVals, err
 			}
-			return rVal, nil
+			return rVals, nil
 		}
 		return nil, err
 	}
@@ -169,92 +215,89 @@ func (r *RedisDistributeCacheService) QueryWithPassThroughWithoutArgs(ctx contex
 	if cachedValue == "" {
 		return nil, nil
 	}
-	return cachedValue, nil
+	cachedList, err := GetResultList[T](cachedValue)
+	if err != nil {
+		return nil, err
+	}
+	return cachedList, nil
 }
 
-func (r *RedisDistributeCacheService) QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]any, error), timeout time.Duration) ([]any, error) {
-	//key := getKey(keyPrefix, id)
-	//// 尝试从缓存获取
-	//cachedValue, err := r.client.Get(ctx, key).Result()
-	//if err != nil {
-	//	if errors.Is(err, redis.Nil) {
-	//		// 缓存不存在，查询数据库
-	//		rVal, err := dbFallback(ctx, id)
-	//		if err != nil {
-	//			return nil, err
-	//		}
-	//		// 数据库中也不存在
-	//		if rVal == nil || len(rVal) == 0 {
-	//			// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
-	//			if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
-	//				return nil, err
-	//			}
-	//			return nil, nil
-	//		}
-	//		// 缓存数据
-	//		if err = r.SetWithTTL(ctx, key, rVal, timeout); err != nil {
-	//			return nil, err
-	//		}
-	//		return rVal, nil
-	//	}
-	//	return nil, err
-	//}
-	//// 缓存的数据为空字符串，直接返回nil
-	//if cachedValue == "" {
-	//	return nil, nil
-	//}
-	//return cachedValue, nil
-	panic("")
-}
-
-func (r *RedisDistributeCacheService) QueryWithPassThroughListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]any, error), timeout time.Duration) ([]any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithPassThroughListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]T, error), timeout time.Duration) ([]T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithLogicalExpire(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpire(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration) (T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithLogicalExpireWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (T, error), timeout time.Duration) (T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithLogicalExpireList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]any, error), timeout time.Duration) ([]any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]T, error), timeout time.Duration) ([]T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithLogicalExpireListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]T, error), timeout time.Duration) ([]T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithMutex(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithMutex(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration) (T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithMutexWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithMutexWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (T, error), timeout time.Duration) (T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithMutexList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]any, error), timeout time.Duration) ([]any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithMutexList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]T, error), timeout time.Duration) ([]T, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *RedisDistributeCacheService) QueryWithMutexListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]any, error), timeout time.Duration) (any, error) {
+func (r *RedisDistributeCacheType[T]) QueryWithMutexListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]T, error), timeout time.Duration) ([]T, error) {
 	//TODO implement me
 	panic("implement me")
+}
+
+func Zero[T any]() T {
+	var zero T
+	return zero
+}
+
+func IsEmpty[T any](v T) bool {
+	// 特殊 case：T 是 interface{} 或 any，值可能是 nil
+	if any(v) == nil {
+		return true
+	}
+	val := reflect.ValueOf(v)
+	// 如果是切片、map、chan、pointer等 nil-able 类型，判断是否为 nil
+	switch val.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan:
+		return val.IsNil()
+	}
+	// 否则判断是否为零值（结构体/基本类型）
+	return val.IsZero()
 }
 
 // getKey 获取带Id的缓存键
 func getKey(keyPrefix string, id interface{}) string {
 	return getKeyWithID(keyPrefix, id)
+}
+
+// getValue 获取要保存到缓存的值，可能是简单的类型，可能是对象类型，也可能是数组类型等
+func getValue(obj any) string {
+	if obj == nil {
+		return ""
+	}
+	return toJSONString(obj)
 }
 
 // getKeyWithoutID 获取不带Id的缓存键
@@ -317,25 +360,4 @@ func GetResultList[T any](obj any) ([]T, error) {
 		return nil, err
 	}
 	return t, nil
-}
-
-type RedisDistributeCacheType[T any] struct {
-}
-
-func NewRedisDistributeCacheType[T any]() *RedisDistributeCacheType[T] {
-	return &RedisDistributeCacheType[T]{}
-}
-
-func (r *RedisDistributeCacheType[T]) Set(ctx context.Context, key string, value any) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (r *RedisDistributeCacheType[T]) QueryWithPassThroughList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, T) ([]T, error), timeout time.Duration) ([]T, error) {
-	userListStr := `[{"name":"Alice","age":25},{"name":"Bob","age":30}]`
-	list, err := GetResultList[T](userListStr)
-	if err != nil {
-		return nil, err
-	}
-	return list, nil
 }
