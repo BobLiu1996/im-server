@@ -5,6 +5,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"im-server/internal/conf"
 	"im-server/internal/data"
+	distributelock "im-server/internal/data/infra/lock/redis"
 	"im-server/internal/pkg/infra/cache"
 	plog "im-server/pkg/log"
 	"testing"
@@ -31,12 +32,12 @@ func InitRedisDistributeCacheService[T any]() (cache.DistributedCacheType[T], fu
 	config := &conf.Data{
 		Mysql: &conf.Data_MySql{
 			Driver: "mysql",
-			//Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
-			Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			//Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
 		},
 		Redis: &conf.Data_Redis{
-			//Addr: "192.168.5.134:6379",
-			Addr:      "localhost:6379",
+			Addr: "192.168.5.134:6379",
+			//Addr:      "localhost:6379",
 			Db:        0,
 			Pool:      250,
 			IsCluster: false,
@@ -47,8 +48,10 @@ func InitRedisDistributeCacheService[T any]() (cache.DistributedCacheType[T], fu
 	if err != nil {
 		return nil, nil, err
 	}
+	// 创建分布式锁
+	distributeLock := distributelock.NewLocker(d)
 	plog.NewLogger("test", "", 100, 10, 10, plog.WithLevel("debug"))
-	redisCache := NewRedisDistributeCacheType[T](d)
+	redisCache := NewRedisDistributeCacheType[T](d, distributeLock)
 	return redisCache, f, nil
 }
 func TestGetKey(t *testing.T) {
@@ -156,6 +159,42 @@ func TestQueryWithPassThroughList(t *testing.T) {
 		d, err := redisCache.QueryWithPassThroughList(context.Background(), testKeyPrefix, id, noEmptyFn, 20*time.Second)
 		So(err, ShouldBeNil)
 		res, _ := GetResultList[*User](d)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpire(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user6"
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context, key any) (*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpire(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldBeNil)
+	})
+
+	Convey("以逻辑过期模式查询缓存对象-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user7"
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context, key any) (*User, error) {
+			userList := &User{
+				Name: "Bob",
+				Age:  28,
+			}
+			return userList, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpire(context.Background(), testKeyPrefix, id, noEmptyFn, 20*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }

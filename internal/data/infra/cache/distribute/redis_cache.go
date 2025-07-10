@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"im-server/internal/data"
+	"im-server/internal/pkg/infra/lock"
 	typeconversion "im-server/pkg/conversion"
 	plog "im-server/pkg/log"
 	"reflect"
@@ -22,6 +23,7 @@ const (
 	EmptyListValue          = "[]"
 	LockSuffix              = "_lock"
 	ThreadSleepMilliseconds = 50 * time.Millisecond
+	LockExpiry              = 8 * time.Second
 )
 
 type (
@@ -33,13 +35,15 @@ type (
 	}
 
 	RedisDistributeCacheType[T any] struct {
-		client redis.Cmdable
+		client          redis.Cmdable
+		distributedLock lock.DistributedLock
 	}
 )
 
-func NewRedisDistributeCacheType[T any](data *data.Data) *RedisDistributeCacheType[T] {
+func NewRedisDistributeCacheType[T any](data *data.Data, distributeLock lock.DistributedLock) *RedisDistributeCacheType[T] {
 	return &RedisDistributeCacheType[T]{
-		client: data.Redis(),
+		client:          data.Redis(),
+		distributedLock: distributeLock,
 	}
 }
 
@@ -133,8 +137,8 @@ func (r *RedisDistributeCacheType[T]) QueryWithPassThrough(ctx context.Context, 
 		}
 		return Zero[T](), err
 	}
-	// 缓存的数据为空字符串，直接返回nil
-	if cachedValue == "" {
+	// 缓存的数据为空值，直接返回nil
+	if cachedValue == EmptyValue {
 		return Zero[T](), nil
 	}
 	result, err := GetResult[T](cachedValue)
@@ -172,8 +176,8 @@ func (r *RedisDistributeCacheType[T]) QueryWithPassThroughWithoutArgs(ctx contex
 		}
 		return Zero[T](), err
 	}
-	// 缓存的数据为空字符串，直接返回nil
-	if cachedValue == "" {
+	// 缓存的数据为空值，直接返回nil
+	if cachedValue == EmptyValue {
 		return Zero[T](), nil
 	}
 	result, err := GetResult[T](cachedValue)
@@ -197,7 +201,7 @@ func (r *RedisDistributeCacheType[T]) QueryWithPassThroughList(ctx context.Conte
 			// 数据库中也不存在
 			if rVals == nil || len(rVals) == 0 {
 				// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
-				if err = r.SetWithTTL(ctx, key, EmptyValue, CacheNullTTL); err != nil {
+				if err = r.SetWithTTL(ctx, key, EmptyListValue, CacheNullTTL); err != nil {
 					return nil, err
 				}
 				return nil, nil
@@ -212,7 +216,7 @@ func (r *RedisDistributeCacheType[T]) QueryWithPassThroughList(ctx context.Conte
 		return nil, err
 	}
 	// 缓存的数据为空字符串，直接返回nil
-	if cachedValue == "" {
+	if cachedValue == EmptyListValue {
 		return nil, nil
 	}
 	cachedList, err := GetResultList[T](cachedValue)
@@ -223,13 +227,133 @@ func (r *RedisDistributeCacheType[T]) QueryWithPassThroughList(ctx context.Conte
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithPassThroughListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]T, error), timeout time.Duration) ([]T, error) {
-	//TODO implement me
-	panic("implement me")
+	key := getKeyWithoutID(keyPrefix)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，查询数据库
+			rVals, err := dbFallback(ctx)
+			if err != nil {
+				return nil, err
+			}
+			// 数据库中也不存在
+			if rVals == nil || len(rVals) == 0 {
+				// 数据库为空，缓存空值（防止缓存穿透的关键步骤）
+				if err = r.SetWithTTL(ctx, key, EmptyListValue, CacheNullTTL); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+			// 缓存数据
+			if err = r.SetWithTTL(ctx, key, rVals, timeout); err != nil {
+				// 如果缓存失败，直接返回数据库查询结果,同时返回错误
+				return rVals, err
+			}
+			return rVals, nil
+		}
+		return nil, err
+	}
+	// 缓存的数据为空值，直接返回nil
+	if cachedValue == EmptyValue {
+		return nil, nil
+	}
+	cachedList, err := GetResultList[T](cachedValue)
+	if err != nil {
+		return nil, err
+	}
+	return cachedList, nil
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpire(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration) (T, error) {
-	//TODO implement me
-	panic("implement me")
+	key := getKey(keyPrefix, id)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		// 缓存未命中,异步重构缓存
+		r.buildCache(ctx, id, dbFallback, timeout, key)
+		// 等待缓存构建
+		time.Sleep(ThreadSleepMilliseconds)
+		// 重试，直到构建成功
+		return r.QueryWithLogicalExpire(ctx, keyPrefix, id, dbFallback, timeout)
+	} else if err != nil {
+		// 其他未知错误，如网络中断等
+		return Zero[T](), err
+	}
+	// 命中了缓存数据
+	// 3. 反序列化缓存数据
+	var redisData RedisData
+	if err := json.Unmarshal([]byte(cachedValue), &redisData); err != nil {
+		// 反序列化错误，直接返回空数据（注意：返回真实的缓存数据的空值，即redisData.Data，而不是逻辑的缓存数据）
+		return Zero[T](), err
+	}
+	if redisData.Data == nil {
+		return Zero[T](), nil
+	}
+	// 检查是否已经逻辑过期
+	if time.Now().Before(redisData.ExpireTime) {
+		// 未过期，直接返回解析后的数据
+		result, err := GetResult[T](redisData.Data)
+		if err != nil {
+			return Zero[T](), err
+		}
+		return result, nil
+	}
+	// 已经过期，触发异步构建缓存的流程
+	r.buildCache(ctx, id, dbFallback, timeout, key)
+	// 返回已经过期的数据（数据的最终一致性）
+	result, err := GetResult[T](redisData.Data)
+	if err != nil {
+		return Zero[T](), err
+	}
+	return result, nil
+}
+
+// buildCache 异步重建缓存
+func (r *RedisDistributeCacheType[T]) buildCache(ctx context.Context, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration, key string) {
+	lockKey := getLockKey(key)
+	go func() {
+		unlock, err := r.distributedLock.Lock(ctx, lockKey, LockExpiry)
+		if err != nil {
+			// 获取分布式锁失败，直接退出，证明有其他线程正在重建该缓存
+			return
+		}
+		defer unlock(ctx)
+		// 获取锁成功，Double Check，再次检查缓存
+		redisDataStr, err := r.client.Get(ctx, key).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			plog.Errorf(ctx, "Double check failed: %v", err)
+			return
+		}
+		// 判断缓存中的数据
+		var newData T
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，从db中获取数据
+			newData, err = dbFallback(ctx, id)
+			if err != nil {
+				plog.Errorf(ctx, "Get data from db failed: %v", err)
+				return
+			}
+		} else {
+			var redisData RedisData
+			if json.Unmarshal([]byte(redisDataStr), &redisData) == nil && time.Now().After(redisData.ExpireTime) {
+				// 缓存已过期：查询数据库
+				newData, err = dbFallback(ctx, id)
+			}
+		}
+		// 更新缓存
+		if IsEmpty[T](newData) {
+			if err := r.SetWithLogicalExpire(ctx, key, EmptyValue, CacheNullTTL); err != nil {
+				plog.Errorf(ctx, "Set empty logical expire failed: %v", err)
+				return
+			}
+		} else {
+			if err := r.SetWithLogicalExpire(ctx, key, newData, timeout); err != nil {
+				plog.Errorf(ctx, "Set logical expire failed: %v", err)
+				return
+			}
+		}
+	}()
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (T, error), timeout time.Duration) (T, error) {
@@ -290,6 +414,10 @@ func IsEmpty[T any](v T) bool {
 // getKey 获取带Id的缓存键
 func getKey(keyPrefix string, id interface{}) string {
 	return getKeyWithID(keyPrefix, id)
+}
+
+func getLockKey(key string) string {
+	return key + LockSuffix
 }
 
 // getValue 获取要保存到缓存的值，可能是简单的类型，可能是对象类型，也可能是数组类型等

@@ -31,15 +31,15 @@ func wireApp(confServer *conf.Server, confData *conf.Data, appConfig *conf.AppCo
 		return nil, nil, err
 	}
 	greeterRepo := data.ProvideGreeterRepo(dataData)
-	distributedCacheType := distribute.ProvideGreeterDistributeCache(dataData)
-	cacheDistributedCacheType := distribute.ProvideUserDistributeCache(dataData)
+	locker := redis.NewLocker(dataData)
+	distributedCacheType := distribute.ProvideGreeterDistributeCache(dataData, locker)
+	cacheDistributedCacheType := distribute.ProvideUserDistributeCache(dataData, locker)
 	greeterUsecase := biz.NewGreeterUsecase(greeterRepo, distributedCacheType, cacheDistributedCacheType)
 	greeterService := service.NewGreeterService(greeterUsecase)
 	grpcServer := server.NewGRPCServer(confServer, greeterService)
 	auth := biz.NewAuth(confServer)
 	httpServer := server.NewHTTPServer(confServer, auth, greeterService)
 	cronService := service.NewCronService()
-	locker := redis.NewLocker(dataData)
 	cronServerImpl := server.NewCronServer(cronService, locker, appConfig)
 	app := newApp(logger, grpcServer, httpServer, cronServerImpl)
 	return app, func() {
