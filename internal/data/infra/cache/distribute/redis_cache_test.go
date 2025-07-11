@@ -330,3 +330,153 @@ func TestQueryWithLogicalExpireListWithoutArgsDBNoEmpty(t *testing.T) {
 		So(res, ShouldNotBeNil)
 	})
 }
+
+func TestQueryWithMutexDBEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user10"
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context, key any) (*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithMutex(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithMutexDBNoEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user11"
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context, key any) (*User, error) {
+			user := &User{
+				Name: "Alex",
+				Age:  10,
+			}
+			return user, nil
+		}
+		d, err := redisCache.QueryWithMutex(context.Background(), testKeyPrefix, id, noEmptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestQueryWithMutexWithoutArgsDBEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象-无参数-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context) (*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithMutexWithoutArgs(context.Background(), testKeyPrefix, emptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithMutexWithoutArgsDBNoEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context) (*User, error) {
+			user := &User{
+				Name: "Alex",
+				Age:  10,
+			}
+			return user, nil
+		}
+		d, err := redisCache.QueryWithMutexWithoutArgs(context.Background(), testKeyPrefix, noEmptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestQueryWithMutexListDBEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象列表-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user12"
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context, key any) ([]*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithMutexList(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithMutexListDBNoEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象列表-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user13"
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context, key any) ([]*User, error) {
+			userList := []*User{
+				{Name: "Alex", Age: 10},
+				{Name: "Jobs", Age: 25},
+				{Name: "Alice", Age: 30},
+			}
+			return userList, nil
+		}
+		d, err := redisCache.QueryWithMutexList(context.Background(), testKeyPrefix, id, noEmptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(len(res), ShouldEqual, 3)
+	})
+}
+
+func TestQueryWithMutexListWithoutArgsDBEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象列表-无参数-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context) ([]*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithMutexListWithoutArgs(context.Background(), testKeyPrefix, emptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithMutexListWithoutArgsDBNoEmpty(t *testing.T) {
+	Convey("以缓存击穿模式查询缓存对象列表-无参数-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context) ([]*User, error) {
+			userList := []*User{
+				{Name: "Alex", Age: 10},
+				{Name: "Jobs", Age: 25},
+				{Name: "Alice", Age: 30},
+			}
+			return userList, nil
+		}
+		d, err := redisCache.QueryWithMutexListWithoutArgs(context.Background(), testKeyPrefix, noEmptyFn, 5*time.Second)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(len(res), ShouldEqual, 3)
+	})
+}
