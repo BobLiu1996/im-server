@@ -34,6 +34,13 @@ type (
 		ExpireTime time.Time
 	}
 
+	RedisDataList[T any] struct {
+		// 实际业务数据
+		Data []T
+		// 过期时间点
+		ExpireTime time.Time
+	}
+
 	RedisDistributeCacheType[T any] struct {
 		client          redis.Cmdable
 		distributedLock lock.DistributedLock
@@ -61,6 +68,14 @@ func (r *RedisDistributeCacheType[T]) Expire(ctx context.Context, key string, ti
 
 func (r *RedisDistributeCacheType[T]) SetWithLogicalExpire(ctx context.Context, key string, value T, timeout time.Duration) error {
 	redisData := &RedisData[T]{
+		Data:       value,
+		ExpireTime: time.Now().Add(timeout),
+	}
+	return r.client.Set(ctx, key, getValue(redisData), 0).Err()
+}
+
+func (r *RedisDistributeCacheType[T]) SetWithLogicalExpireList(ctx context.Context, key string, value []T, timeout time.Duration) error {
+	redisData := &RedisDataList[T]{
 		Data:       value,
 		ExpireTime: time.Now().Add(timeout),
 	}
@@ -317,7 +332,6 @@ func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpire(ctx context.Context
 }
 
 // buildCache 异步重建缓存
-// todo 权衡是使用异步还是同步，异步重建缓存可以避免阻塞主线程，但可能会导致数据不一致的问题；同步重建缓存会阻塞主线程，但可以保证数据的一致性
 func (r *RedisDistributeCacheType[T]) buildCache(ctx context.Context, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration, key string) {
 	lockKey := getLockKey(key)
 	executeBuild := func() {
@@ -370,18 +384,310 @@ func (r *RedisDistributeCacheType[T]) buildCache(ctx context.Context, id any, db
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (T, error), timeout time.Duration) (T, error) {
-	//TODO implement me
-	panic("implement me")
+	key := getKeyWithoutID(keyPrefix)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		// 缓存未命中,异步重构缓存
+		r.buildCacheWithoutArgs(ctx, dbFallback, timeout, key)
+		// 等待缓存构建
+		time.Sleep(ThreadSleepMilliseconds)
+		// 重试，直到构建成功
+		return r.QueryWithLogicalExpireWithoutArgs(ctx, keyPrefix, dbFallback, timeout)
+	} else if err != nil {
+		// 其他未知错误，如网络中断等
+		return Zero[T](), err
+	}
+	// 命中了缓存数据
+	// 反序列化缓存数据
+	var redisData RedisData[T]
+	if err := json.Unmarshal([]byte(cachedValue), &redisData); err != nil {
+		// 反序列化错误，直接返回空数据（注意：返回缓存的业务数据的空值，即redisData.Data，而不是缓存数据）
+		return Zero[T](), err
+	}
+	// 检查缓存中的业务数据是否为空
+	if IsEmpty[T](redisData.Data) {
+		// 检查空值标记是否过期
+		if time.Now().After(redisData.ExpireTime) {
+			// 触发异步重建验证
+			r.buildCacheWithoutArgs(ctx, dbFallback, timeout, key)
+		}
+		return Zero[T](), nil
+	}
+	// 检查是否已经逻辑过期
+	if time.Now().Before(redisData.ExpireTime) {
+		// 未过期，直接返回解析后的数据
+		result, err := GetResult[T](redisData.Data)
+		if err != nil {
+			return Zero[T](), err
+		}
+		return result, nil
+	}
+	// 已经过期，触发异步构建缓存的流程，防止阻塞主线程
+	// 只尝试获取一次分布式锁，避免多线程同时重建缓存，获取锁失败，证明有其他线程正在重建该缓存，所以可以直接退出而无需重试（意义不大且极大地降低了并发度）
+	r.buildCacheWithoutArgs(ctx, dbFallback, timeout, key)
+	// 返回已经过期的数据（数据的最终一致性）
+	result, err := GetResult[T](redisData.Data)
+	if err != nil {
+		return Zero[T](), err
+	}
+	return result, nil
+}
+
+// buildCache 异步重建缓存
+func (r *RedisDistributeCacheType[T]) buildCacheWithoutArgs(ctx context.Context, dbFallback func(context.Context) (T, error), timeout time.Duration, key string) {
+	lockKey := getLockKey(key)
+	executeBuild := func() {
+		unlock, err := r.distributedLock.Lock(ctx, lockKey, LockExpiry)
+		if err != nil {
+			// 获取分布式锁失败，直接退出，证明有其他线程正在重建该缓存
+			return
+		}
+		defer unlock(ctx)
+		// 获取锁成功，Double Check，再次检查缓存
+		redisDataStr, err := r.client.Get(ctx, key).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			plog.Errorf(ctx, "Double check failed: %v", err)
+			return
+		}
+		// 判断缓存中的数据
+		var newData T
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，从db中获取数据
+			newData, err = dbFallback(ctx)
+			if err != nil {
+				plog.Errorf(ctx, "Get data from db failed: %v", err)
+				return
+			}
+		} else {
+			var redisData RedisData[T]
+			if json.Unmarshal([]byte(redisDataStr), &redisData) == nil && time.Now().After(redisData.ExpireTime) {
+				// 缓存已过期：查询数据库
+				plog.Infof(ctx, "Cache expired, rebuilding cache for key: %s", key)
+				newData, err = dbFallback(ctx)
+			}
+		}
+		// 更新缓存
+		if IsEmpty[T](newData) {
+			if err := r.SetWithLogicalExpire(ctx, key, Zero[T](), CacheNullTTL); err != nil {
+				plog.Errorf(ctx, "Set empty logical expire failed: %v", err)
+				return
+			}
+		} else {
+			if err := r.SetWithLogicalExpire(ctx, key, newData, timeout); err != nil {
+				plog.Errorf(ctx, "Set logical expire failed: %v", err)
+				return
+			}
+		}
+	}
+	//// 异步执行重建缓存
+	//go executeBuild()
+	// 同步重建
+	executeBuild()
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireList(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) ([]T, error), timeout time.Duration) ([]T, error) {
-	//TODO implement me
-	panic("implement me")
+	key := getKey(keyPrefix, id)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		// 缓存未命中,异步重构缓存
+		r.buildCacheList(ctx, id, dbFallback, timeout, key)
+		// 等待缓存构建
+		time.Sleep(ThreadSleepMilliseconds)
+		// 重试，直到构建成功
+		return r.QueryWithLogicalExpireList(ctx, keyPrefix, id, dbFallback, timeout)
+	} else if err != nil {
+		// 其他未知错误，如网络中断等
+		return nil, err
+	}
+	// 命中了缓存数据
+	// 反序列化缓存数据
+	var redisData RedisDataList[T]
+	if err := json.Unmarshal([]byte(cachedValue), &redisData); err != nil {
+		// 反序列化错误，直接返回空数据（注意：返回缓存的业务数据的空值，即redisData.Data，而不是缓存数据）
+		return nil, err
+	}
+	// 检查缓存中的业务数据是否为空
+	if redisData.Data == nil || len(redisData.Data) == 0 {
+		// 检查空值标记是否过期
+		if time.Now().After(redisData.ExpireTime) {
+			// 触发异步重建验证
+			r.buildCacheList(ctx, id, dbFallback, timeout, key)
+		}
+		return nil, nil
+	}
+	// 检查是否已经逻辑过期
+	if time.Now().Before(redisData.ExpireTime) {
+		// 未过期，直接返回解析后的数据
+		result, err := GetResultList[T](redisData.Data)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+	// 已经过期，触发异步构建缓存的流程，防止阻塞主线程
+	// 只尝试获取一次分布式锁，避免多线程同时重建缓存，获取锁失败，证明有其他线程正在重建该缓存，所以可以直接退出而无需重试（意义不大且极大地降低了并发度）
+	r.buildCacheList(ctx, id, dbFallback, timeout, key)
+	// 返回已经过期的数据（数据的最终一致性）
+	result, err := GetResultList[T](redisData.Data)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *RedisDistributeCacheType[T]) buildCacheList(ctx context.Context, id any, dbFallback func(context.Context, any) ([]T, error), timeout time.Duration, key string) {
+	lockKey := getLockKey(key)
+	executeBuild := func() {
+		unlock, err := r.distributedLock.Lock(ctx, lockKey, LockExpiry)
+		if err != nil {
+			// 获取分布式锁失败，直接退出，证明有其他线程正在重建该缓存
+			return
+		}
+		defer unlock(ctx)
+		// 获取锁成功，Double Check，再次检查缓存
+		redisDataStr, err := r.client.Get(ctx, key).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			plog.Errorf(ctx, "Double check failed: %v", err)
+			return
+		}
+		// 判断缓存中的数据
+		var newDataList []T
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，从db中获取数据
+			newDataList, err = dbFallback(ctx, id)
+			if err != nil {
+				plog.Errorf(ctx, "Get data from db failed: %v", err)
+				return
+			}
+		} else {
+			var redisDataList RedisDataList[T]
+			if json.Unmarshal([]byte(redisDataStr), &redisDataList) == nil && time.Now().After(redisDataList.ExpireTime) {
+				// 缓存已过期：查询数据库
+				plog.Infof(ctx, "Cache expired, rebuilding cache for key: %s", key)
+				newDataList, err = dbFallback(ctx, id)
+			}
+		}
+		// 更新缓存
+		if newDataList == nil || len(newDataList) == 0 {
+			if err := r.SetWithLogicalExpireList(ctx, key, nil, CacheNullTTL); err != nil {
+				plog.Errorf(ctx, "Set empty logical expire failed: %v", err)
+				return
+			}
+		} else {
+			if err := r.SetWithLogicalExpireList(ctx, key, newDataList, timeout); err != nil {
+				plog.Errorf(ctx, "Set logical expire failed: %v", err)
+				return
+			}
+		}
+	}
+	//// 异步执行重建缓存
+	//go executeBuild()
+	// 同步重建
+	executeBuild()
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireListWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) ([]T, error), timeout time.Duration) ([]T, error) {
-	//TODO implement me
-	panic("implement me")
+	key := getKeyWithoutID(keyPrefix)
+	// 尝试从缓存获取
+	cachedValue, err := r.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		// 缓存未命中,异步重构缓存
+		r.buildCacheListWithoutArgs(ctx, dbFallback, timeout, key)
+		// 等待缓存构建
+		time.Sleep(ThreadSleepMilliseconds)
+		// 重试，直到构建成功
+		return r.QueryWithLogicalExpireListWithoutArgs(ctx, keyPrefix, dbFallback, timeout)
+	} else if err != nil {
+		// 其他未知错误，如网络中断等
+		return nil, err
+	}
+	// 命中了缓存数据
+	// 反序列化缓存数据
+	var redisData RedisDataList[T]
+	if err := json.Unmarshal([]byte(cachedValue), &redisData); err != nil {
+		// 反序列化错误，直接返回空数据（注意：返回缓存的业务数据的空值，即redisData.Data，而不是缓存数据）
+		return nil, err
+	}
+	// 检查缓存中的业务数据是否为空
+	if redisData.Data == nil || len(redisData.Data) == 0 {
+		// 检查空值标记是否过期
+		if time.Now().After(redisData.ExpireTime) {
+			// 触发异步重建验证
+			r.buildCacheListWithoutArgs(ctx, dbFallback, timeout, key)
+		}
+		return nil, nil
+	}
+	// 检查是否已经逻辑过期
+	if time.Now().Before(redisData.ExpireTime) {
+		// 未过期，直接返回解析后的数据
+		result, err := GetResultList[T](redisData.Data)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+	// 已经过期，触发异步构建缓存的流程，防止阻塞主线程
+	// 只尝试获取一次分布式锁，避免多线程同时重建缓存，获取锁失败，证明有其他线程正在重建该缓存，所以可以直接退出而无需重试（意义不大且极大地降低了并发度）
+	r.buildCacheListWithoutArgs(ctx, dbFallback, timeout, key)
+	// 返回已经过期的数据（数据的最终一致性）
+	result, err := GetResultList[T](redisData.Data)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *RedisDistributeCacheType[T]) buildCacheListWithoutArgs(ctx context.Context, dbFallback func(context.Context) ([]T, error), timeout time.Duration, key string) {
+	lockKey := getLockKey(key)
+	executeBuild := func() {
+		unlock, err := r.distributedLock.Lock(ctx, lockKey, LockExpiry)
+		if err != nil {
+			// 获取分布式锁失败，直接退出，证明有其他线程正在重建该缓存
+			return
+		}
+		defer unlock(ctx)
+		// 获取锁成功，Double Check，再次检查缓存
+		redisDataStr, err := r.client.Get(ctx, key).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			plog.Errorf(ctx, "Double check failed: %v", err)
+			return
+		}
+		// 判断缓存中的数据
+		var newDataList []T
+		if errors.Is(err, redis.Nil) {
+			// 缓存不存在，从db中获取数据
+			newDataList, err = dbFallback(ctx)
+			if err != nil {
+				plog.Errorf(ctx, "Get data from db failed: %v", err)
+				return
+			}
+		} else {
+			var redisDataList RedisDataList[T]
+			if json.Unmarshal([]byte(redisDataStr), &redisDataList) == nil && time.Now().After(redisDataList.ExpireTime) {
+				// 缓存已过期：查询数据库
+				plog.Infof(ctx, "Cache expired, rebuilding cache for key: %s", key)
+				newDataList, err = dbFallback(ctx)
+			}
+		}
+		// 更新缓存
+		if newDataList == nil || len(newDataList) == 0 {
+			if err := r.SetWithLogicalExpireList(ctx, key, nil, CacheNullTTL); err != nil {
+				plog.Errorf(ctx, "Set empty logical expire failed: %v", err)
+				return
+			}
+		} else {
+			if err := r.SetWithLogicalExpireList(ctx, key, newDataList, timeout); err != nil {
+				plog.Errorf(ctx, "Set logical expire failed: %v", err)
+				return
+			}
+		}
+	}
+	//// 异步执行重建缓存
+	//go executeBuild()
+	// 同步重建
+	executeBuild()
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithMutex(ctx context.Context, keyPrefix string, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration) (T, error) {
@@ -463,7 +769,7 @@ func getKeyWithID(keyPrefix string, id interface{}) string {
 	if strings.TrimSpace(key) == "" {
 		key = ""
 	}
-	return fmt.Sprintf("%s_%s", keyPrefix, key)
+	return fmt.Sprintf("%s%s", keyPrefix, key)
 }
 
 // toJSONString 将对象转换为JSON字符串

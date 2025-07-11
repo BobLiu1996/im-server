@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	testKeyPrefix = "test_distribute_cache"
+	testKeyPrefix = "test_distribute_cache_"
 )
 
 type (
@@ -94,7 +94,7 @@ func TestSetCacheValue(t *testing.T) {
 	})
 }
 
-func TestQueryWithPassThrough(t *testing.T) {
+func TestQueryWithPassThroughDBEmpty(t *testing.T) {
 	Convey("以缓存穿透模式查询缓存对象-数据库中无数据", t, func() {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()
@@ -109,7 +109,9 @@ func TestQueryWithPassThrough(t *testing.T) {
 		res, _ := GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
+}
 
+func TestQueryWithPassThroughDBNoEmpty(t *testing.T) {
 	Convey("以缓存穿透模式查询缓存对象-数据库中存在数据", t, func() {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()
@@ -127,7 +129,7 @@ func TestQueryWithPassThrough(t *testing.T) {
 	})
 }
 
-func TestQueryWithPassThroughList(t *testing.T) {
+func TestQueryWithPassThroughListDBEmpty(t *testing.T) {
 	Convey("以缓存穿透模式查询缓存对象列表-数据库中无数据", t, func() {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()
@@ -142,7 +144,9 @@ func TestQueryWithPassThroughList(t *testing.T) {
 		res, _ := GetResultList[*User](d)
 		So(res, ShouldBeNil)
 	})
+}
 
+func TestQueryWithPassThroughListDBNoEmpty(t *testing.T) {
 	Convey("以缓存穿透模式查询缓存对象列表-数据库中存在数据", t, func() {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()
@@ -201,6 +205,128 @@ func TestQueryWithLogicalExpireDBNoEmpty(t *testing.T) {
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
 		res, _ := GetResult[*User](d)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpireWithoutArgsDBEmpty(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象-无id参数-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context) (*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpireWithoutArgs(context.Background(), testKeyPrefix, emptyFn, 5*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpireWithoutArgsDBNoEmpty(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象-无id参数-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context) (*User, error) {
+			userList := &User{
+				Name: "Bob",
+				Age:  30,
+			}
+			return userList, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpireWithoutArgs(context.Background(), testKeyPrefix, noEmptyFn, 5*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
+		So(err, ShouldBeNil)
+		res, _ := GetResult[*User](d)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpireListDBEmpty(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象列表-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user8"
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context, key any) ([]*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpireList(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpireListDBNoEmpty(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象列表-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		id := "user9"
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context, key any) ([]*User, error) {
+			userList := []*User{
+				{Name: "Bob", Age: 28},
+				{Name: "Charlie", Age: 32},
+			}
+			return userList, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpireList(context.Background(), testKeyPrefix, id, noEmptyFn, 20*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(res, ShouldNotBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpireListWithoutArgsDBEmpty(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象列表-无参数-数据库中无数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库中拿到了空数据
+		emptyFn := func(ctx context.Context) ([]*User, error) {
+			return nil, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpireListWithoutArgs(context.Background(), testKeyPrefix, emptyFn, 5*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
+		So(res, ShouldBeNil)
+	})
+}
+
+func TestQueryWithLogicalExpireListWithoutArgsDBNoEmpty(t *testing.T) {
+	Convey("以逻辑过期模式查询缓存对象列表-无参数-数据库中存在数据", t, func() {
+		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
+		defer cleanup()
+		So(err, ShouldBeNil)
+		// 模拟从数据库获取到非空数据
+		noEmptyFn := func(ctx context.Context) ([]*User, error) {
+			userList := []*User{
+				{Name: "Bob", Age: 28},
+				{Name: "Charlie", Age: 32},
+			}
+			return userList, nil
+		}
+		d, err := redisCache.QueryWithLogicalExpireListWithoutArgs(context.Background(), testKeyPrefix, noEmptyFn, 20*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
+		So(err, ShouldBeNil)
+		res, _ := GetResultList[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
