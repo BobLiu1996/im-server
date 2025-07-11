@@ -32,12 +32,12 @@ func InitRedisDistributeCacheService[T any]() (cache.DistributedCacheType[T], fu
 	config := &conf.Data{
 		Mysql: &conf.Data_MySql{
 			Driver: "mysql",
-			Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
-			//Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			//Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
 		},
 		Redis: &conf.Data_Redis{
-			Addr: "192.168.5.134:6379",
-			//Addr:      "localhost:6379",
+			//Addr: "192.168.5.134:6379",
+			Addr:      "localhost:6379",
 			Db:        0,
 			Pool:      250,
 			IsCluster: false,
@@ -163,7 +163,7 @@ func TestQueryWithPassThroughList(t *testing.T) {
 	})
 }
 
-func TestQueryWithLogicalExpire(t *testing.T) {
+func TestQueryWithLogicalExpireDBEmpty(t *testing.T) {
 	Convey("以逻辑过期模式查询缓存对象-数据库中无数据", t, func() {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()
@@ -174,11 +174,14 @@ func TestQueryWithLogicalExpire(t *testing.T) {
 			return nil, nil
 		}
 		d, err := redisCache.QueryWithLogicalExpire(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
+		time.Sleep(10 * time.Second) // 等待逻辑过期时间到期
 		So(err, ShouldBeNil)
 		res, _ := GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
+}
 
+func TestQueryWithLogicalExpireDBNoEmpty(t *testing.T) {
 	Convey("以逻辑过期模式查询缓存对象-数据库中存在数据", t, func() {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()

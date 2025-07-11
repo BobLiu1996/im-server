@@ -10,7 +10,7 @@ type DistributedCacheType[T any] interface {
 	Set(ctx context.Context, key string, value any) error
 	SetWithTTL(ctx context.Context, key string, value any, timeout time.Duration) error
 	Expire(ctx context.Context, key string, timeout time.Duration) error
-	SetWithLogicalExpire(ctx context.Context, key string, value any, timeout time.Duration) error
+	SetWithLogicalExpire(ctx context.Context, key string, value T, timeout time.Duration) error
 	Get(ctx context.Context, key string) (string, error)
 	GetObject(ctx context.Context, key string) (T, error)
 	Delete(ctx context.Context, key string) error

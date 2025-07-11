@@ -27,9 +27,9 @@ const (
 )
 
 type (
-	RedisData struct {
+	RedisData[T any] struct {
 		// 实际业务数据
-		Data any
+		Data T
 		// 过期时间点
 		ExpireTime time.Time
 	}
@@ -59,8 +59,8 @@ func (r *RedisDistributeCacheType[T]) Expire(ctx context.Context, key string, ti
 	return r.client.Expire(ctx, key, timeout).Err()
 }
 
-func (r *RedisDistributeCacheType[T]) SetWithLogicalExpire(ctx context.Context, key string, value any, timeout time.Duration) error {
-	redisData := &RedisData{
+func (r *RedisDistributeCacheType[T]) SetWithLogicalExpire(ctx context.Context, key string, value T, timeout time.Duration) error {
+	redisData := &RedisData[T]{
 		Data:       value,
 		ExpireTime: time.Now().Add(timeout),
 	}
@@ -281,13 +281,19 @@ func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpire(ctx context.Context
 		return Zero[T](), err
 	}
 	// 命中了缓存数据
-	// 3. 反序列化缓存数据
-	var redisData RedisData
+	// 反序列化缓存数据
+	var redisData RedisData[T]
 	if err := json.Unmarshal([]byte(cachedValue), &redisData); err != nil {
-		// 反序列化错误，直接返回空数据（注意：返回真实的缓存数据的空值，即redisData.Data，而不是逻辑的缓存数据）
+		// 反序列化错误，直接返回空数据（注意：返回缓存的业务数据的空值，即redisData.Data，而不是缓存数据）
 		return Zero[T](), err
 	}
-	if redisData.Data == nil {
+	// 检查缓存中的业务数据是否为空
+	if IsEmpty[T](redisData.Data) {
+		// 检查空值标记是否过期
+		if time.Now().After(redisData.ExpireTime) {
+			// 触发异步重建验证
+			r.buildCache(ctx, id, dbFallback, timeout, key)
+		}
 		return Zero[T](), nil
 	}
 	// 检查是否已经逻辑过期
@@ -299,7 +305,8 @@ func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpire(ctx context.Context
 		}
 		return result, nil
 	}
-	// 已经过期，触发异步构建缓存的流程
+	// 已经过期，触发异步构建缓存的流程，防止阻塞主线程
+	// 只尝试获取一次分布式锁，避免多线程同时重建缓存，获取锁失败，证明有其他线程正在重建该缓存，所以可以直接退出而无需重试（意义不大且极大地降低了并发度）
 	r.buildCache(ctx, id, dbFallback, timeout, key)
 	// 返回已经过期的数据（数据的最终一致性）
 	result, err := GetResult[T](redisData.Data)
@@ -310,9 +317,10 @@ func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpire(ctx context.Context
 }
 
 // buildCache 异步重建缓存
+// todo 权衡是使用异步还是同步，异步重建缓存可以避免阻塞主线程，但可能会导致数据不一致的问题；同步重建缓存会阻塞主线程，但可以保证数据的一致性
 func (r *RedisDistributeCacheType[T]) buildCache(ctx context.Context, id any, dbFallback func(context.Context, any) (T, error), timeout time.Duration, key string) {
 	lockKey := getLockKey(key)
-	go func() {
+	executeBuild := func() {
 		unlock, err := r.distributedLock.Lock(ctx, lockKey, LockExpiry)
 		if err != nil {
 			// 获取分布式锁失败，直接退出，证明有其他线程正在重建该缓存
@@ -335,15 +343,16 @@ func (r *RedisDistributeCacheType[T]) buildCache(ctx context.Context, id any, db
 				return
 			}
 		} else {
-			var redisData RedisData
+			var redisData RedisData[T]
 			if json.Unmarshal([]byte(redisDataStr), &redisData) == nil && time.Now().After(redisData.ExpireTime) {
 				// 缓存已过期：查询数据库
+				plog.Infof(ctx, "Cache expired, rebuilding cache for key: %s", key)
 				newData, err = dbFallback(ctx, id)
 			}
 		}
 		// 更新缓存
 		if IsEmpty[T](newData) {
-			if err := r.SetWithLogicalExpire(ctx, key, EmptyValue, CacheNullTTL); err != nil {
+			if err := r.SetWithLogicalExpire(ctx, key, Zero[T](), CacheNullTTL); err != nil {
 				plog.Errorf(ctx, "Set empty logical expire failed: %v", err)
 				return
 			}
@@ -353,7 +362,11 @@ func (r *RedisDistributeCacheType[T]) buildCache(ctx context.Context, id any, db
 				return
 			}
 		}
-	}()
+	}
+	//// 异步执行重建缓存
+	//go executeBuild()
+	// 同步重建
+	executeBuild()
 }
 
 func (r *RedisDistributeCacheType[T]) QueryWithLogicalExpireWithoutArgs(ctx context.Context, keyPrefix string, dbFallback func(context.Context) (T, error), timeout time.Duration) (T, error) {
