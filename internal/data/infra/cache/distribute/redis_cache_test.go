@@ -174,7 +174,8 @@ func TestQueryWithLogicalExpireDBEmpty(t *testing.T) {
 			return nil, nil
 		}
 		d, err := redisCache.QueryWithLogicalExpire(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
-		time.Sleep(10 * time.Second) // 等待逻辑过期时间到期
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
 		res, _ := GetResult[*User](d)
 		So(res, ShouldBeNil)
@@ -196,6 +197,8 @@ func TestQueryWithLogicalExpireDBNoEmpty(t *testing.T) {
 			return userList, nil
 		}
 		d, err := redisCache.QueryWithLogicalExpire(context.Background(), testKeyPrefix, id, noEmptyFn, 20*time.Second)
+		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
+		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
 		res, _ := GetResult[*User](d)
 		So(res, ShouldNotBeNil)
