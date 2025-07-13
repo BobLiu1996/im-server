@@ -26,8 +26,13 @@ message Data {
     bool is_cluster = 8;
     string key_prefix = 9;
   }
+  message LocalCache {
+    google.protobuf.Duration expiration = 1;
+    google.protobuf.Duration cleanupInterval = 6;
+  }
   MySql mysql = 1;
   Redis redis = 2;
   string repoSelector =3;
   bool debug = 4; //是否开启debug，数据库可以打印sql语句
+  LocalCache localCache = 5;
 }

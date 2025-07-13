@@ -11,3 +11,6 @@ data:
     read_timeout: "5s"
     write_timeout: "5s"
     is_cluster: false
+  localCache:
+    expiration: "200s"
+    cleanupInterval: "10m"

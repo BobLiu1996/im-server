@@ -1,7 +1,7 @@
 package cache
 
-type LocalCache interface {
-	Put(key interface{}, value interface{}) error
-	GetIfPresent(key interface{}) (interface{}, error)
-	Remove(key interface{}) error
+type LocalCache[K comparable, V any] interface {
+	Put(key K, value V)
+	GetIfPresent(key K) (V, error)
+	Remove(key K)
 }

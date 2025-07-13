@@ -5,6 +5,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"im-server/internal/conf"
 	"im-server/internal/data"
+	"im-server/internal/data/infra"
 	distributelock "im-server/internal/data/infra/lock/redis"
 	"im-server/internal/pkg/infra/cache"
 	plog "im-server/pkg/log"
@@ -32,12 +33,12 @@ func InitRedisDistributeCacheService[T any]() (cache.DistributedCacheType[T], fu
 	config := &conf.Data{
 		Mysql: &conf.Data_MySql{
 			Driver: "mysql",
-			//Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
-			Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			Source: "root:root@tcp(192.168.5.134:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
+			//Source: "root:mystic@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true&loc=Local",
 		},
 		Redis: &conf.Data_Redis{
-			//Addr: "192.168.5.134:6379",
-			Addr:      "localhost:6379",
+			Addr: "192.168.5.134:6379",
+			//Addr:      "localhost:6379",
 			Db:        0,
 			Pool:      250,
 			IsCluster: false,
@@ -56,7 +57,7 @@ func InitRedisDistributeCacheService[T any]() (cache.DistributedCacheType[T], fu
 }
 func TestGetKey(t *testing.T) {
 	Convey("测试getKey函数", t, func() {
-		res := getKey(testKeyPrefix, &ID{
+		res := infra.GetKey(testKeyPrefix, &ID{
 			Name:    "testId",
 			Version: 1,
 		})
@@ -67,7 +68,7 @@ func TestGetKey(t *testing.T) {
 func TestGetResult(t *testing.T) {
 	Convey("获取结果对象", t, func() {
 		userStr := `{"name":"Alice","age":25}`
-		res, err := GetResult[*User](userStr)
+		res, err := infra.GetResult[*User](userStr)
 		So(err, ShouldBeNil)
 		So(res, ShouldNotBeNil)
 	})
@@ -76,7 +77,7 @@ func TestGetResult(t *testing.T) {
 func TestGetResultList(t *testing.T) {
 	Convey("获取结果列表", t, func() {
 		userListStr := `[{"name":"Alice","age":25},{"name":"Bob","age":30}]`
-		res, err := GetResultList[*User](userListStr)
+		res, err := infra.GetResultList[*User](userListStr)
 		So(err, ShouldBeNil)
 		So(len(res), ShouldEqual, 2)
 	})
@@ -87,7 +88,7 @@ func TestSetCacheValue(t *testing.T) {
 		redisCache, cleanup, err := InitRedisDistributeCacheService[*User]()
 		defer cleanup()
 		So(err, ShouldBeNil)
-		key := getKey(testKeyPrefix, "user1")
+		key := infra.GetKey(testKeyPrefix, "user1")
 		value := &User{Name: "Bob", Age: 18}
 		err = redisCache.Set(context.Background(), key, value)
 		So(err, ShouldBeNil)
@@ -106,7 +107,7 @@ func TestQueryWithPassThroughDBEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithPassThrough(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -124,7 +125,7 @@ func TestQueryWithPassThroughDBNoEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithPassThrough(context.Background(), testKeyPrefix, id, noEmptyFn, 20*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -141,7 +142,7 @@ func TestQueryWithPassThroughListDBEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithPassThroughList(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -162,7 +163,7 @@ func TestQueryWithPassThroughListDBNoEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithPassThroughList(context.Background(), testKeyPrefix, id, noEmptyFn, 20*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -181,7 +182,7 @@ func TestQueryWithLogicalExpireDBEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -204,7 +205,7 @@ func TestQueryWithLogicalExpireDBNoEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -222,7 +223,7 @@ func TestQueryWithLogicalExpireWithoutArgsDBEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -244,7 +245,7 @@ func TestQueryWithLogicalExpireWithoutArgsDBNoEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -263,7 +264,7 @@ func TestQueryWithLogicalExpireListDBEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -286,7 +287,7 @@ func TestQueryWithLogicalExpireListDBNoEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -304,7 +305,7 @@ func TestQueryWithLogicalExpireListWithoutArgsDBEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -326,7 +327,7 @@ func TestQueryWithLogicalExpireListWithoutArgsDBNoEmpty(t *testing.T) {
 		// NOTE: 主线程延时以等待重构缓存线程执行完，不然可能子线程还未执行完，主线程就终结了
 		time.Sleep(ThreadSleepMilliseconds)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -343,7 +344,7 @@ func TestQueryWithMutexDBEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutex(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -364,7 +365,7 @@ func TestQueryWithMutexDBNoEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutex(context.Background(), testKeyPrefix, id, noEmptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -380,7 +381,7 @@ func TestQueryWithMutexWithoutArgsDBEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutexWithoutArgs(context.Background(), testKeyPrefix, emptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -400,7 +401,7 @@ func TestQueryWithMutexWithoutArgsDBNoEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutexWithoutArgs(context.Background(), testKeyPrefix, noEmptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResult[*User](d)
+		res, _ := infra.GetResult[*User](d)
 		So(res, ShouldNotBeNil)
 	})
 }
@@ -417,7 +418,7 @@ func TestQueryWithMutexListDBEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutexList(context.Background(), testKeyPrefix, id, emptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -439,7 +440,7 @@ func TestQueryWithMutexListDBNoEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutexList(context.Background(), testKeyPrefix, id, noEmptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(len(res), ShouldEqual, 3)
 	})
 }
@@ -455,7 +456,7 @@ func TestQueryWithMutexListWithoutArgsDBEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutexListWithoutArgs(context.Background(), testKeyPrefix, emptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(res, ShouldBeNil)
 	})
 }
@@ -476,7 +477,7 @@ func TestQueryWithMutexListWithoutArgsDBNoEmpty(t *testing.T) {
 		}
 		d, err := redisCache.QueryWithMutexListWithoutArgs(context.Background(), testKeyPrefix, noEmptyFn, 5*time.Second)
 		So(err, ShouldBeNil)
-		res, _ := GetResultList[*User](d)
+		res, _ := infra.GetResultList[*User](d)
 		So(len(res), ShouldEqual, 3)
 	})
 }

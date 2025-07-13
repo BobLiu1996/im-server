@@ -28,6 +28,7 @@ type Data struct {
 	Redis         *Data_Redis            `protobuf:"bytes,2,opt,name=redis,proto3" json:"redis,omitempty"`
 	RepoSelector  string                 `protobuf:"bytes,3,opt,name=repoSelector,proto3" json:"repoSelector,omitempty"`
 	Debug         bool                   `protobuf:"varint,4,opt,name=debug,proto3" json:"debug,omitempty"` //是否开启debug，数据库可以打印sql语句
+	LocalCache    *Data_LocalCache       `protobuf:"bytes,5,opt,name=localCache,proto3" json:"localCache,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -88,6 +89,13 @@ func (x *Data) GetDebug() bool {
 		return x.Debug
 	}
 	return false
+}
+
+func (x *Data) GetLocalCache() *Data_LocalCache {
+	if x != nil {
+		return x.LocalCache
+	}
+	return nil
 }
 
 type Data_MySql struct {
@@ -282,17 +290,72 @@ func (x *Data_Redis) GetKeyPrefix() string {
 	return ""
 }
 
+type Data_LocalCache struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Expiration      *durationpb.Duration   `protobuf:"bytes,1,opt,name=expiration,proto3" json:"expiration,omitempty"`
+	CleanupInterval *durationpb.Duration   `protobuf:"bytes,6,opt,name=cleanupInterval,proto3" json:"cleanupInterval,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Data_LocalCache) Reset() {
+	*x = Data_LocalCache{}
+	mi := &file_data_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Data_LocalCache) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Data_LocalCache) ProtoMessage() {}
+
+func (x *Data_LocalCache) ProtoReflect() protoreflect.Message {
+	mi := &file_data_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Data_LocalCache.ProtoReflect.Descriptor instead.
+func (*Data_LocalCache) Descriptor() ([]byte, []int) {
+	return file_data_proto_rawDescGZIP(), []int{0, 2}
+}
+
+func (x *Data_LocalCache) GetExpiration() *durationpb.Duration {
+	if x != nil {
+		return x.Expiration
+	}
+	return nil
+}
+
+func (x *Data_LocalCache) GetCleanupInterval() *durationpb.Duration {
+	if x != nil {
+		return x.CleanupInterval
+	}
+	return nil
+}
+
 var File_data_proto protoreflect.FileDescriptor
 
 const file_data_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"data.proto\x12\x04conf\x1a\x1egoogle/protobuf/duration.proto\"\x9c\x05\n" +
+	"data.proto\x12\x04conf\x1a\x1egoogle/protobuf/duration.proto\"\xe2\x06\n" +
 	"\x04Data\x12&\n" +
 	"\x05mysql\x18\x01 \x01(\v2\x10.conf.Data.MySqlR\x05mysql\x12&\n" +
 	"\x05redis\x18\x02 \x01(\v2\x10.conf.Data.RedisR\x05redis\x12\"\n" +
 	"\frepoSelector\x18\x03 \x01(\tR\frepoSelector\x12\x14\n" +
-	"\x05debug\x18\x04 \x01(\bR\x05debug\x1a\xd3\x01\n" +
+	"\x05debug\x18\x04 \x01(\bR\x05debug\x125\n" +
+	"\n" +
+	"localCache\x18\x05 \x01(\v2\x15.conf.Data.LocalCacheR\n" +
+	"localCache\x1a\xd3\x01\n" +
 	"\x05MySql\x12\x16\n" +
 	"\x06driver\x18\x01 \x01(\tR\x06driver\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x19\n" +
@@ -312,7 +375,13 @@ const file_data_proto_rawDesc = "" +
 	"\n" +
 	"is_cluster\x18\b \x01(\bR\tisCluster\x12\x1d\n" +
 	"\n" +
-	"key_prefix\x18\t \x01(\tR\tkeyPrefixB\x1eZ\x1cim-server/internal/conf;confb\x06proto3"
+	"key_prefix\x18\t \x01(\tR\tkeyPrefix\x1a\x8c\x01\n" +
+	"\n" +
+	"LocalCache\x129\n" +
+	"\n" +
+	"expiration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\n" +
+	"expiration\x12C\n" +
+	"\x0fcleanupInterval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x0fcleanupIntervalB\x1eZ\x1cim-server/internal/conf;confb\x06proto3"
 
 var (
 	file_data_proto_rawDescOnce sync.Once
@@ -326,24 +395,28 @@ func file_data_proto_rawDescGZIP() []byte {
 	return file_data_proto_rawDescData
 }
 
-var file_data_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_data_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_data_proto_goTypes = []any{
 	(*Data)(nil),                // 0: conf.Data
 	(*Data_MySql)(nil),          // 1: conf.Data.MySql
 	(*Data_Redis)(nil),          // 2: conf.Data.Redis
-	(*durationpb.Duration)(nil), // 3: google.protobuf.Duration
+	(*Data_LocalCache)(nil),     // 3: conf.Data.LocalCache
+	(*durationpb.Duration)(nil), // 4: google.protobuf.Duration
 }
 var file_data_proto_depIdxs = []int32{
 	1, // 0: conf.Data.mysql:type_name -> conf.Data.MySql
 	2, // 1: conf.Data.redis:type_name -> conf.Data.Redis
-	3, // 2: conf.Data.MySql.max_lifetime:type_name -> google.protobuf.Duration
-	3, // 3: conf.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	3, // 4: conf.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3, // 2: conf.Data.localCache:type_name -> conf.Data.LocalCache
+	4, // 3: conf.Data.MySql.max_lifetime:type_name -> google.protobuf.Duration
+	4, // 4: conf.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	4, // 5: conf.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	4, // 6: conf.Data.LocalCache.expiration:type_name -> google.protobuf.Duration
+	4, // 7: conf.Data.LocalCache.cleanupInterval:type_name -> google.protobuf.Duration
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_data_proto_init() }
@@ -357,7 +430,7 @@ func file_data_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_data_proto_rawDesc), len(file_data_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
