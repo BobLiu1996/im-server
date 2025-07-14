@@ -30,9 +30,17 @@ message Data {
     google.protobuf.Duration expiration = 1;
     google.protobuf.Duration cleanupInterval = 6;
   }
+  message RocketMQ {
+    repeated string nameServers = 1;
+    message Producer {
+      string groupName = 1;
+    }
+    Producer producer = 2;
+  }
   MySql mysql = 1;
   Redis redis = 2;
   string repoSelector =3;
   bool debug = 4; //是否开启debug，数据库可以打印sql语句
   LocalCache localCache = 5;
+  RocketMQ rocketMQ = 6;
 }
