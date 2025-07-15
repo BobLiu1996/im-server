@@ -11,6 +11,7 @@ import (
 	"im-server/internal/data"
 	rediscache "im-server/internal/data/infra/cache/distribute"
 	localcache "im-server/internal/data/infra/cache/local"
+	rocketmq "im-server/internal/data/infra/mq"
 
 	redislock "im-server/internal/data/infra/lock/redis"
 	"im-server/internal/server"
@@ -23,5 +24,5 @@ import (
 
 // wireApp init kratos application.
 func wireApp(*conf.Server, *conf.Data, *conf.AppConfig, log.Logger) (*kratos.App, func(), error) {
-	panic(wire.Build(server.ProviderSet, data.ProviderSet, biz.ProviderSet, service.ProviderSet, redislock.ProviderSet, rediscache.AutoWireDistributedCacheProviderSet, localcache.AutoWireLocalCacheProviderSet, newApp))
+	panic(wire.Build(server.ProviderSet, data.ProviderSet, biz.ProviderSet, service.ProviderSet, redislock.ProviderSet, rediscache.AutoWireDistributedCacheProviderSet, localcache.AutoWireLocalCacheProviderSet, rocketmq.ProviderSet, newApp))
 }

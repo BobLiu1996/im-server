@@ -7,5 +7,5 @@ import (
 
 type MessageSender interface {
 	Send(message *model.TopicMessage) (bool, error)
-	SendMessageInTransaction(message *model.TopicMessage) (*primitive.TransactionSendResult, error)
+	SendMessageInTransaction(txListener primitive.TransactionListener, message *model.TopicMessage) (*primitive.TransactionSendResult, error)
 }

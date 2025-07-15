@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"fmt"
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	. "github.com/smartystreets/goconvey/convey"
 	"im-server/internal/conf"
@@ -8,6 +9,7 @@ import (
 	"im-server/internal/pkg/infra/mq"
 	plog "im-server/pkg/log"
 	"testing"
+	"time"
 )
 
 type DemoListener struct {
@@ -18,13 +20,17 @@ func NewDemoListener() *DemoListener {
 }
 
 func (d *DemoListener) ExecuteLocalTransaction(message *primitive.Message) primitive.LocalTransactionState {
-	//TODO implement me
-	panic("implement me")
+	fmt.Printf("执行本地事务,%v", message)
+	// 模拟执行本地事务
+	time.Sleep(1 * time.Minute)
+	return primitive.UnknowState
 }
 
 func (d *DemoListener) CheckLocalTransaction(ext *primitive.MessageExt) primitive.LocalTransactionState {
-	//TODO implement me
-	panic("implement me")
+	// 当rocketmq无法确定本地事务状态时（收到的状态为非rollback或者commit时，或者超时未收到ack），会回调用客户端此方法
+	fmt.Printf("检查本地事务,%v", ext)
+	// 模拟检查本地事务状态
+	return primitive.CommitMessageState
 }
 
 func InitRocketMQSender() (mq.MessageSender, error) {
@@ -48,15 +54,16 @@ func InitRocketMQSender() (mq.MessageSender, error) {
 			},
 		},
 	}
-	sender, err := NewRocketMQMessageSender(config, NewDemoListener())
+	sender, err := NewRocketMQMessageSender(config)
 	if err != nil {
 		return nil, err
 	}
 	plog.NewLogger("test", "", 100, 10, 10, plog.WithLevel("debug"))
 	return sender, nil
 }
-func TestGetKey(t *testing.T) {
-	Convey("测试getKey函数", t, func() {
+
+func TestSyncSend(t *testing.T) {
+	Convey("测试同步发送", t, func() {
 		sender, err := InitRocketMQSender()
 		So(err, ShouldBeNil)
 		So(sender, ShouldNotBeNil)
@@ -66,5 +73,20 @@ func TestGetKey(t *testing.T) {
 		ok, err := sender.Send(message)
 		So(err, ShouldBeNil)
 		So(ok, ShouldBeTrue)
+	})
+}
+
+func TestSendInTx(t *testing.T) {
+	Convey("测试事务消息发送", t, func() {
+		sender, err := InitRocketMQSender()
+		So(err, ShouldBeNil)
+		So(sender, ShouldNotBeNil)
+		message := &model.TopicMessage{
+			Destination: "txTopic",
+		}
+		listener := NewDemoListener()
+		res, err := sender.SendMessageInTransaction(listener, message)
+		So(err, ShouldBeNil)
+		So(res, ShouldNotBeNil)
 	})
 }

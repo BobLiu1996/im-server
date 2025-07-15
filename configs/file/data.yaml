@@ -14,3 +14,8 @@ data:
   localCache:
     expiration: "200s"
     cleanupInterval: "10m"
+  rocketMq:
+    nameServers:
+      - "192.168.5.134:9876"
+    producer:
+      groupName: "test"

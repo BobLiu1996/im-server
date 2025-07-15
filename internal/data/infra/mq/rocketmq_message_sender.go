@@ -12,14 +12,14 @@ import (
 )
 
 type RocketMQMessageSender struct {
-	producer   rocketmq.Producer
-	txProducer rocketmq.TransactionProducer
+	producer rocketmq.Producer
+	mqCfg    *conf.Data_RocketMQ
 }
 
-func NewRocketMQMessageSender(dataCfg *conf.Data, txListener primitive.TransactionListener) (*RocketMQMessageSender, error) {
+func NewRocketMQMessageSender(dataCfg *conf.Data) (*RocketMQMessageSender, error) {
 	var p rocketmq.Producer
-	var txp rocketmq.TransactionProducer
-	if mqCfg := dataCfg.GetRocketMQ(); mqCfg != nil {
+	mqCfg := dataCfg.GetRocketMQ()
+	if mqCfg != nil {
 		addr, err := primitive.NewNamesrvAddr(mqCfg.GetNameServers()...)
 		if err != nil {
 			return nil, err
@@ -33,18 +33,10 @@ func NewRocketMQMessageSender(dataCfg *conf.Data, txListener primitive.Transacti
 			return nil, err
 		}
 
-		txp, err = rocketmq.NewTransactionProducer(
-			txListener,
-			producer.WithNameServer(addr),
-			producer.WithGroupName(mqCfg.GetProducer().GetGroupName()),
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return &RocketMQMessageSender{
-		producer:   p,
-		txProducer: txp,
+		producer: p,
+		mqCfg:    mqCfg,
 	}, nil
 }
 
@@ -65,14 +57,24 @@ func (r *RocketMQMessageSender) Send(message *model.TopicMessage) (bool, error) 
 	return res.Status == primitive.SendOK, nil
 }
 
-func (r *RocketMQMessageSender) SendMessageInTransaction(message *model.TopicMessage) (*primitive.TransactionSendResult, error) {
-	r.txProducer.Start()
-	defer r.txProducer.Shutdown()
+func (r *RocketMQMessageSender) SendMessageInTransaction(txListener primitive.TransactionListener, message *model.TopicMessage) (*primitive.TransactionSendResult, error) {
+	txp, err := rocketmq.NewTransactionProducer(
+		txListener,
+		producer.WithNameServer(r.mqCfg.GetNameServers()),
+		producer.WithGroupName(r.mqCfg.GetProducer().GetGroupName()),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := txp.Start(); err != nil {
+		return nil, err
+	}
+	defer txp.Shutdown()
 	msg, err := r.buildMessage(message)
 	if err != nil {
 		return nil, err
 	}
-	return r.txProducer.SendMessageInTransaction(context.Background(), msg)
+	return txp.SendMessageInTransaction(context.Background(), msg)
 }
 
 func (r *RocketMQMessageSender) buildMessage(msg *model.TopicMessage) (*primitive.Message, error) {

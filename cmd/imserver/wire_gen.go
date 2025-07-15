@@ -15,6 +15,7 @@ import (
 	"im-server/internal/data/infra/cache/distribute"
 	"im-server/internal/data/infra/cache/local"
 	"im-server/internal/data/infra/lock/redis"
+	"im-server/internal/data/infra/mq"
 	"im-server/internal/server"
 	"im-server/internal/service"
 )
@@ -37,7 +38,8 @@ func wireApp(confServer *conf.Server, confData *conf.Data, appConfig *conf.AppCo
 	cacheDistributedCacheType := distribute.ProvideUserDistributeCache(dataData, locker)
 	localCache := local.ProvideGreeterLocalCache(confData)
 	cacheLocalCache := local.ProvideUserLocalCache(confData)
-	greeterUsecase := biz.NewGreeterUsecase(greeterRepo, distributedCacheType, cacheDistributedCacheType, localCache, cacheLocalCache)
+	messageSender := mq.ProvideRocketMQMessageSender(confData)
+	greeterUsecase := biz.NewGreeterUsecase(greeterRepo, distributedCacheType, cacheDistributedCacheType, localCache, cacheLocalCache, messageSender)
 	greeterService := service.NewGreeterService(greeterUsecase)
 	grpcServer := server.NewGRPCServer(confServer, greeterService)
 	auth := biz.NewAuth(confServer)
