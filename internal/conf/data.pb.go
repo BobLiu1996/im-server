@@ -351,9 +351,10 @@ func (x *Data_LocalCache) GetCleanupInterval() *durationpb.Duration {
 }
 
 type Data_RocketMQ struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	NameServers   []string                `protobuf:"bytes,1,rep,name=nameServers,proto3" json:"nameServers,omitempty"`
-	Producer      *Data_RocketMQ_Producer `protobuf:"bytes,2,opt,name=producer,proto3" json:"producer,omitempty"`
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	NameServers   []string                  `protobuf:"bytes,1,rep,name=nameServers,proto3" json:"nameServers,omitempty"`
+	Producer      *Data_RocketMQ_Producer   `protobuf:"bytes,2,opt,name=producer,proto3" json:"producer,omitempty"`
+	TxProducer    *Data_RocketMQ_TxProducer `protobuf:"bytes,3,opt,name=txProducer,proto3" json:"txProducer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -402,6 +403,13 @@ func (x *Data_RocketMQ) GetProducer() *Data_RocketMQ_Producer {
 	return nil
 }
 
+func (x *Data_RocketMQ) GetTxProducer() *Data_RocketMQ_TxProducer {
+	if x != nil {
+		return x.TxProducer
+	}
+	return nil
+}
+
 type Data_RocketMQ_Producer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	GroupName     string                 `protobuf:"bytes,1,opt,name=groupName,proto3" json:"groupName,omitempty"`
@@ -446,12 +454,56 @@ func (x *Data_RocketMQ_Producer) GetGroupName() string {
 	return ""
 }
 
+type Data_RocketMQ_TxProducer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupName     string                 `protobuf:"bytes,2,opt,name=groupName,proto3" json:"groupName,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Data_RocketMQ_TxProducer) Reset() {
+	*x = Data_RocketMQ_TxProducer{}
+	mi := &file_data_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Data_RocketMQ_TxProducer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Data_RocketMQ_TxProducer) ProtoMessage() {}
+
+func (x *Data_RocketMQ_TxProducer) ProtoReflect() protoreflect.Message {
+	mi := &file_data_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Data_RocketMQ_TxProducer.ProtoReflect.Descriptor instead.
+func (*Data_RocketMQ_TxProducer) Descriptor() ([]byte, []int) {
+	return file_data_proto_rawDescGZIP(), []int{0, 3, 1}
+}
+
+func (x *Data_RocketMQ_TxProducer) GetGroupName() string {
+	if x != nil {
+		return x.GroupName
+	}
+	return ""
+}
+
 var File_data_proto protoreflect.FileDescriptor
 
 const file_data_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"data.proto\x12\x04conf\x1a\x1egoogle/protobuf/duration.proto\"\xa6\b\n" +
+	"data.proto\x12\x04conf\x1a\x1egoogle/protobuf/duration.proto\"\x92\t\n" +
 	"\x04Data\x12&\n" +
 	"\x05mysql\x18\x01 \x01(\v2\x10.conf.Data.MySqlR\x05mysql\x12&\n" +
 	"\x05redis\x18\x02 \x01(\v2\x10.conf.Data.RedisR\x05redis\x12\"\n" +
@@ -486,12 +538,18 @@ const file_data_proto_rawDesc = "" +
 	"\n" +
 	"expiration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\n" +
 	"expiration\x12C\n" +
-	"\x0fcleanupInterval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x0fcleanupInterval\x1a\x90\x01\n" +
+	"\x0fcleanupInterval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x0fcleanupInterval\x1a\xfc\x01\n" +
 	"\bRocketMQ\x12 \n" +
 	"\vnameServers\x18\x01 \x03(\tR\vnameServers\x128\n" +
-	"\bproducer\x18\x02 \x01(\v2\x1c.conf.Data.RocketMQ.ProducerR\bproducer\x1a(\n" +
+	"\bproducer\x18\x02 \x01(\v2\x1c.conf.Data.RocketMQ.ProducerR\bproducer\x12>\n" +
+	"\n" +
+	"txProducer\x18\x03 \x01(\v2\x1e.conf.Data.RocketMQ.TxProducerR\n" +
+	"txProducer\x1a(\n" +
 	"\bProducer\x12\x1c\n" +
-	"\tgroupName\x18\x01 \x01(\tR\tgroupNameB\x1eZ\x1cim-server/internal/conf;confb\x06proto3"
+	"\tgroupName\x18\x01 \x01(\tR\tgroupName\x1a*\n" +
+	"\n" +
+	"TxProducer\x12\x1c\n" +
+	"\tgroupName\x18\x02 \x01(\tR\tgroupNameB\x1eZ\x1cim-server/internal/conf;confb\x06proto3"
 
 var (
 	file_data_proto_rawDescOnce sync.Once
@@ -505,32 +563,34 @@ func file_data_proto_rawDescGZIP() []byte {
 	return file_data_proto_rawDescData
 }
 
-var file_data_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_data_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_data_proto_goTypes = []any{
-	(*Data)(nil),                   // 0: conf.Data
-	(*Data_MySql)(nil),             // 1: conf.Data.MySql
-	(*Data_Redis)(nil),             // 2: conf.Data.Redis
-	(*Data_LocalCache)(nil),        // 3: conf.Data.LocalCache
-	(*Data_RocketMQ)(nil),          // 4: conf.Data.RocketMQ
-	(*Data_RocketMQ_Producer)(nil), // 5: conf.Data.RocketMQ.Producer
-	(*durationpb.Duration)(nil),    // 6: google.protobuf.Duration
+	(*Data)(nil),                     // 0: conf.Data
+	(*Data_MySql)(nil),               // 1: conf.Data.MySql
+	(*Data_Redis)(nil),               // 2: conf.Data.Redis
+	(*Data_LocalCache)(nil),          // 3: conf.Data.LocalCache
+	(*Data_RocketMQ)(nil),            // 4: conf.Data.RocketMQ
+	(*Data_RocketMQ_Producer)(nil),   // 5: conf.Data.RocketMQ.Producer
+	(*Data_RocketMQ_TxProducer)(nil), // 6: conf.Data.RocketMQ.TxProducer
+	(*durationpb.Duration)(nil),      // 7: google.protobuf.Duration
 }
 var file_data_proto_depIdxs = []int32{
 	1,  // 0: conf.Data.mysql:type_name -> conf.Data.MySql
 	2,  // 1: conf.Data.redis:type_name -> conf.Data.Redis
 	3,  // 2: conf.Data.localCache:type_name -> conf.Data.LocalCache
 	4,  // 3: conf.Data.rocketMQ:type_name -> conf.Data.RocketMQ
-	6,  // 4: conf.Data.MySql.max_lifetime:type_name -> google.protobuf.Duration
-	6,  // 5: conf.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	6,  // 6: conf.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	6,  // 7: conf.Data.LocalCache.expiration:type_name -> google.protobuf.Duration
-	6,  // 8: conf.Data.LocalCache.cleanupInterval:type_name -> google.protobuf.Duration
+	7,  // 4: conf.Data.MySql.max_lifetime:type_name -> google.protobuf.Duration
+	7,  // 5: conf.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	7,  // 6: conf.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	7,  // 7: conf.Data.LocalCache.expiration:type_name -> google.protobuf.Duration
+	7,  // 8: conf.Data.LocalCache.cleanupInterval:type_name -> google.protobuf.Duration
 	5,  // 9: conf.Data.RocketMQ.producer:type_name -> conf.Data.RocketMQ.Producer
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	6,  // 10: conf.Data.RocketMQ.txProducer:type_name -> conf.Data.RocketMQ.TxProducer
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_data_proto_init() }
@@ -544,7 +604,7 @@ func file_data_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_data_proto_rawDesc), len(file_data_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

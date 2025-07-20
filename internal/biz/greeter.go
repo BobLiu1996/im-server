@@ -51,11 +51,10 @@ func (uc GreeterUsecase) ListAllGreeter(ctx context.Context) ([]*do.Greeter, err
 	//	return nil, err
 	//}
 	//fmt.Println(present)
-	listener := NewDemoListener()
 	message := &model.TopicMessage{
 		Destination: "txTopic",
 	}
-	res, err := uc.rmqSender.SendMessageInTransaction(listener, message)
+	res, err := uc.rmqSender.SendMessageInTransaction(ctx, message)
 	if err != nil {
 		return nil, err
 	}

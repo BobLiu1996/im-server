@@ -13,9 +13,12 @@ data:
     is_cluster: false
   localCache:
     expiration: "200s"
-    cleanupInterval: "10m"
-  rocketMq:
+    cleanupInterval: "10000s"
+  rocketMQ:
     nameServers:
       - "192.168.5.134:9876"
     producer:
       groupName: "test"
+    txProducer:
+      groupName: "txtest"
+

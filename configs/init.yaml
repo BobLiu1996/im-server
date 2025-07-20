@@ -1,5 +1,5 @@
 #source:
-#  file: /home/mystic/workspace/im-server/configs/file
+#  file: D:\workspace\im-server\configs\file
 source:
   apollo:
     app_id: "im-server"
@@ -10,7 +10,7 @@ source:
     enable_backup: false
     backup_path: "/app/configs"
 zap:
-  file: /home/mystic/workspace/im-server/local_logs/im-server.log
+  file: D:\workspace\im-server\local_logs\im-server.log
   console: true
   level: info
   max_age: 5

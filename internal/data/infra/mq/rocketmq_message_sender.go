@@ -12,69 +12,91 @@ import (
 )
 
 type RocketMQMessageSender struct {
-	producer rocketmq.Producer
-	mqCfg    *conf.Data_RocketMQ
+	dataCfg    *conf.Data
+	producer   rocketmq.Producer
+	txProducer rocketmq.TransactionProducer
 }
 
-func NewRocketMQMessageSender(dataCfg *conf.Data) (*RocketMQMessageSender, error) {
+func NewRocketMQMessageSender(dataConf *conf.Data, txListener primitive.TransactionListener) (*RocketMQMessageSender, error) {
+	rmqSender := &RocketMQMessageSender{
+		dataCfg: dataConf,
+	}
+	if err := rmqSender.initRocketMQTxProducer(txListener); err != nil {
+		return nil, err
+	}
+	if err := rmqSender.initRocketMQProducer(); err != nil {
+		return nil, err
+	}
+	return rmqSender, nil
+}
+
+func (r *RocketMQMessageSender) initRocketMQProducer() error {
 	var p rocketmq.Producer
-	mqCfg := dataCfg.GetRocketMQ()
+	mqCfg := r.dataCfg.GetRocketMQ()
 	if mqCfg != nil {
-		addr, err := primitive.NewNamesrvAddr(mqCfg.GetNameServers()...)
-		if err != nil {
-			return nil, err
-		}
+		var err error
 		p, err = rocketmq.NewProducer(
-			producer.WithNameServer(addr),
-			producer.WithRetry(2),
+			producer.WithRetry(1),
+			producer.WithNsResolver(primitive.NewPassthroughResolver(mqCfg.GetNameServers())),
 			producer.WithGroupName(mqCfg.GetProducer().GetGroupName()),
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
-
+		err = p.Start()
+		if err != nil {
+			return err
+		}
+		r.producer = p
 	}
-	return &RocketMQMessageSender{
-		producer: p,
-		mqCfg:    mqCfg,
-	}, nil
+	return nil
 }
 
-func (r *RocketMQMessageSender) Send(message *model.TopicMessage) (bool, error) {
+func (r *RocketMQMessageSender) initRocketMQTxProducer(txListener primitive.TransactionListener) error {
+	mqCfg := r.dataCfg.GetRocketMQ()
+	txProducerCfg := mqCfg.GetTxProducer()
+	if txProducerCfg != nil {
+		var err error
+		txp, err := rocketmq.NewTransactionProducer(
+			txListener,
+			producer.WithNsResolver(primitive.NewPassthroughResolver(mqCfg.GetNameServers())),
+			producer.WithGroupName(txProducerCfg.GetGroupName()),
+			producer.WithRetry(1),
+		)
+		if err != nil {
+			return err
+		}
+		err = txp.Start()
+		if err != nil {
+			return err
+		}
+		r.txProducer = txp
+	}
+	return nil
+}
+
+func (r *RocketMQMessageSender) Send(ctx context.Context, message *model.TopicMessage) (bool, error) {
 	err := r.producer.Start()
 	if err != nil {
 		return false, err
 	}
-	defer r.producer.Shutdown()
 	msg, err := r.buildMessage(message)
 	if err != nil {
 		return false, err
 	}
-	res, err := r.producer.SendSync(context.Background(), msg)
+	res, err := r.producer.SendSync(ctx, msg)
 	if err != nil {
 		return false, err
 	}
 	return res.Status == primitive.SendOK, nil
 }
 
-func (r *RocketMQMessageSender) SendMessageInTransaction(txListener primitive.TransactionListener, message *model.TopicMessage) (*primitive.TransactionSendResult, error) {
-	txp, err := rocketmq.NewTransactionProducer(
-		txListener,
-		producer.WithNameServer(r.mqCfg.GetNameServers()),
-		producer.WithGroupName(r.mqCfg.GetProducer().GetGroupName()),
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err := txp.Start(); err != nil {
-		return nil, err
-	}
-	defer txp.Shutdown()
+func (r *RocketMQMessageSender) SendMessageInTransaction(ctx context.Context, message *model.TopicMessage) (*primitive.TransactionSendResult, error) {
 	msg, err := r.buildMessage(message)
 	if err != nil {
 		return nil, err
 	}
-	return txp.SendMessageInTransaction(context.Background(), msg)
+	return r.txProducer.SendMessageInTransaction(ctx, msg)
 }
 
 func (r *RocketMQMessageSender) buildMessage(msg *model.TopicMessage) (*primitive.Message, error) {

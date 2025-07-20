@@ -38,3 +38,4 @@ bin/
 *.swp
 local_logs
 localconf
+/local/.*

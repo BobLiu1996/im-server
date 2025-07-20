@@ -1,14 +1,14 @@
 server:
   http:
     addr: 0.0.0.0:8000
-    timeout: 10s
+    timeout: 120s
   grpc:
     addr: 0.0.0.0:9000
-    timeout: 10s
+    timeout: 120s
   middleware:
     token:
       jwt: im-server-test
   cron_tasks:
   - name: SyncStatus
-    spec: 0/1 * * * * ?
+    spec: 0/10 * * * * ?
     timeout: 50s

@@ -35,7 +35,11 @@ message Data {
     message Producer {
       string groupName = 1;
     }
+    message TxProducer{
+      string groupName= 2;
+    }
     Producer producer = 2;
+    TxProducer txProducer = 3;
   }
   MySql mysql = 1;
   Redis redis = 2;

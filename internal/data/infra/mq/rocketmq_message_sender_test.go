@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"context"
 	"fmt"
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	. "github.com/smartystreets/goconvey/convey"
@@ -12,21 +13,21 @@ import (
 	"time"
 )
 
-type DemoListener struct {
+type DemoListener1 struct {
 }
 
-func NewDemoListener() *DemoListener {
-	return &DemoListener{}
+func NewDemoListener1() *DemoListener1 {
+	return &DemoListener1{}
 }
 
-func (d *DemoListener) ExecuteLocalTransaction(message *primitive.Message) primitive.LocalTransactionState {
+func (d *DemoListener1) ExecuteLocalTransaction(message *primitive.Message) primitive.LocalTransactionState {
 	fmt.Printf("执行本地事务,%v", message)
 	// 模拟执行本地事务
-	time.Sleep(1 * time.Minute)
+	time.Sleep(20 * time.Second)
 	return primitive.UnknowState
 }
 
-func (d *DemoListener) CheckLocalTransaction(ext *primitive.MessageExt) primitive.LocalTransactionState {
+func (d *DemoListener1) CheckLocalTransaction(ext *primitive.MessageExt) primitive.LocalTransactionState {
 	// 当rocketmq无法确定本地事务状态时（收到的状态为非rollback或者commit时，或者超时未收到ack），会回调用客户端此方法
 	fmt.Printf("检查本地事务,%v", ext)
 	// 模拟检查本地事务状态
@@ -50,11 +51,14 @@ func InitRocketMQSender() (mq.MessageSender, error) {
 		RocketMQ: &conf.Data_RocketMQ{
 			NameServers: []string{"192.168.5.134:9876"},
 			Producer: &conf.Data_RocketMQ_Producer{
+				GroupName: "test1",
+			},
+			TxProducer: &conf.Data_RocketMQ_TxProducer{
 				GroupName: "test",
 			},
 		},
 	}
-	sender, err := NewRocketMQMessageSender(config)
+	sender, err := NewRocketMQMessageSender(config, NewDemoListener1())
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +74,7 @@ func TestSyncSend(t *testing.T) {
 		message := &model.TopicMessage{
 			Destination: "input",
 		}
-		ok, err := sender.Send(message)
+		ok, err := sender.Send(context.Background(), message)
 		So(err, ShouldBeNil)
 		So(ok, ShouldBeTrue)
 	})
@@ -82,11 +86,10 @@ func TestSendInTx(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(sender, ShouldNotBeNil)
 		message := &model.TopicMessage{
-			Destination: "txTopic",
+			Destination: "input",
 		}
-		listener := NewDemoListener()
-		res, err := sender.SendMessageInTransaction(listener, message)
+		res, err := sender.SendMessageInTransaction(context.Background(), message)
 		So(err, ShouldBeNil)
-		So(res, ShouldNotBeNil)
+		So(res.SendResult.Status, ShouldEqual, primitive.SendOK)
 	})
 }
